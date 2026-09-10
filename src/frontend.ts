@@ -68,7 +68,7 @@ const WORKSHOP_CSS = String.raw`
   --wk-preview-width: 430px;
   position: relative;
   width: 100%;
-  height: calc(100dvh - 92px);
+  height: calc(100dvh - 120px);
   min-height: 520px;
   display: grid;
   grid-template-rows: 52px minmax(0, 1fr);
@@ -204,6 +204,7 @@ const WORKSHOP_CSS = String.raw`
 .workshop-empty-card strong { display: block; color: var(--lumiverse-text); margin-bottom: 7px; }
 .workshop-native-layout { height: 100% !important; min-height: 0 !important; }
 .workshop-native-scroll { min-height: 0 !important; }
+.workshop-native-form { width: 100% !important; max-width: none !important; margin-inline: 0 !important; }
 .workshop-primary-textarea { min-height: clamp(360px, 48vh, 720px) !important; resize: vertical !important; }
 .workshop-native-form.workshop-variable-sidecar { display: grid !important; grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); column-gap: 22px; align-items: start; }
 .workshop-native-form.workshop-variable-sidecar > .workshop-native-main-field { grid-column: 1; }
@@ -262,7 +263,8 @@ const WORKSHOP_CSS = String.raw`
 .workshop-pill { min-width: 20px; padding: 1px 5px; border: 1px solid var(--lumiverse-border-neutral, var(--lumiverse-border)); border-radius: 999px; color: var(--lumiverse-text-dim); font-size: 9px; text-align: center; }
 .workshop-pill.define { color: var(--lumiverse-primary-text, var(--lumiverse-text)); }
 .workshop-row-actions { display: inline-flex; gap: 3px; }
-.workshop-category-chevron { width: 13px; height: 13px; flex: 0 0 auto; transition: transform 120ms ease; }
+.workshop-category-chevron { width: 13px; height: 13px; flex: 0 0 auto; display: inline-grid; place-items: center; overflow: hidden; vertical-align: middle; transition: transform 120ms ease; }
+.workshop-category-chevron svg { width: 13px; height: 13px; display: block; max-width: 13px; max-height: 13px; }
 .workshop-category-chevron.collapsed { transform: rotate(-90deg); }
 .workshop-rail-note { padding: 8px 10px; font-size: 10px; color: var(--lumiverse-text-dim); border-top: 1px solid var(--lumiverse-border); }
 
@@ -1208,7 +1210,25 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   primaryObserver.observe(editorMount, { childList: true, subtree: true })
   secondaryObserver.observe(secondaryEditorMount, { childList: true, subtree: true })
   cleanups.push(() => primaryObserver.disconnect(), () => secondaryObserver.disconnect())
-  const onViewportResize = () => scheduleNativeDecoration()
+
+  function fitWorkshopHeightToModalBody(): void {
+    const body = root.parentElement
+    if (!(body instanceof HTMLElement)) return
+    const style = getComputedStyle(body)
+    const paddingTop = Number.parseFloat(style.paddingTop) || 0
+    const paddingBottom = Number.parseFloat(style.paddingBottom) || 0
+    const available = Math.floor(body.clientHeight - paddingTop - paddingBottom)
+    if (available <= 0) return
+    root.style.height = `${available}px`
+    root.style.minHeight = `${Math.min(520, available)}px`
+  }
+
+  const initialFitFrame = requestAnimationFrame(fitWorkshopHeightToModalBody)
+  cleanups.push(() => cancelAnimationFrame(initialFitFrame))
+  const onViewportResize = () => {
+    fitWorkshopHeightToModalBody()
+    scheduleNativeDecoration()
+  }
   window.addEventListener('resize', onViewportResize)
   cleanups.push(() => window.removeEventListener('resize', onViewportResize))
 

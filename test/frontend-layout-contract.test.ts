@@ -30,6 +30,7 @@ describe('Workshop frontend layout contract', () => {
     expect(source).toContain('.workshop-primary-textarea')
     expect(source).toContain('min-height: clamp(360px, 48vh, 720px)')
     expect(source).toContain('width: min(100%, 1500px)')
+    expect(source).toContain('.workshop-native-form { width: 100% !important; max-width: none !important; margin-inline: 0 !important; }')
   })
 
   test('supports dual native Loom editors and restores variables beneath in dual mode', () => {
@@ -53,6 +54,11 @@ describe('Workshop frontend layout contract', () => {
     expect(source).toContain("const edit = button('workshop-mini-button', `Edit category ${category.name || ''}`.trim(), ICONS.pencil)")
   })
 
+  test('hard-bounds category chevron SVGs so intrinsic SVG sizing cannot blow out the prompt rail', () => {
+    expect(source).toContain('.workshop-category-chevron { width: 13px; height: 13px;')
+    expect(source).toContain('.workshop-category-chevron svg { width: 13px; height: 13px; display: block; max-width: 13px; max-height: 13px; }')
+  })
+
   test('makes dry-run preview size draggable in bottom and side layouts', () => {
     expect(source).toContain('data-resize="preview"')
     expect(source).toContain("root.style.setProperty('--wk-preview-width'")
@@ -66,5 +72,12 @@ describe('Workshop frontend layout contract', () => {
     expect(source).toContain('if (destroyed || previewCollapsed) return')
     expect(source).toContain("type: 'workshop:cancel-preview'")
     expect(source).toContain('schedulePreview(true)')
+  })
+
+  test('fits the Workshop shell to the host modal body so the collapsed preview bar stays visible', () => {
+    expect(source).toContain('height: calc(100dvh - 120px)')
+    expect(source).toContain('function fitWorkshopHeightToModalBody(): void')
+    expect(source).toContain('body.clientHeight - paddingTop - paddingBottom')
+    expect(source).toContain('requestAnimationFrame(fitWorkshopHeightToModalBody)')
   })
 })

@@ -6,7 +6,12 @@ Workshop is a near-fullscreen Loom preset workspace for Lumiverse. It keeps Lumi
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
-## 0.2.0 workspace pass
+## 0.2.2 fit-and-width pass
+
+- Keeps the collapsed dry-run toolbar fully inside the host modal body instead of letting it fall below the modal viewport.
+- Removes Loom's native 800px form cap inside Workshop so single-prompt editing can use the wider Workshop canvas; the variable sidecar inherits the same wider surface.
+
+## 0.2.1 workspace pass
 
 - Keeps the Workshop launcher visible across Loom list/edit remounts and stretches the current preset-toolbar host to a full-width launcher row.
 - Gives the prompt and variable rails their own collapse/reopen controls.
@@ -41,3 +46,7 @@ bun run verify
 ```
 
 Build output is written to `dist/frontend.js` and `dist/backend.js`.
+
+## 0.2.1
+
+- Hard-bounds category chevron SVGs to 13px so browser intrinsic SVG sizing cannot overflow the prompt rail.
