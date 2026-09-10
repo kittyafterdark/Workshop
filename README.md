@@ -6,6 +6,18 @@ Workshop is a near-fullscreen Loom preset workspace for Lumiverse. It keeps Lumi
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.2.5 selection scroll stability
+
+- Preserves the prompt rail's own scroll position while Workshop rebuilds prompt rows after selection, category changes, draft updates, or variable highlighting. This prevents long presets from snapping back to the top when a prompt is opened.
+- Preserves the variable rail scroll position across its corresponding rerenders.
+- Captures scrollable host-modal ancestors around primary/secondary prompt selection and restores them immediately plus across the next two animation frames, covering focus/layout effects from the native controlled Loom editor without forcing the newly selected prompt editor to inherit the previous prompt's internal scroll position.
+
+## 0.2.4 race + sidecar geometry repair
+
+- Repairs the preset-toolbar deferred mount race without touching Lumiverse core: if the registered Workshop root misses the host's first paint task, Workshop performs a bounded visibility remount while Loom is open instead of waiting for an edit/back remount.
+- Replaces the variable sidecar's sentinel `grid-row: 1 / span 99` with the exact number of native main-form rows. The old sentinel manufactured dozens of empty grid tracks (and their row gaps), which made the native prompt editor scroll deep into blank space even after the variable rail itself was height-bounded.
+- Keeps the variable rail independently scrollable and modal-height-aware; only the fake extra native scroll distance is removed.
+
 ## 0.2.3 independent pane scrolling
 
 - Bounds the single-prompt native variable sidecar to the actual Loom editor viewport instead of letting large variable collections determine the whole form height.

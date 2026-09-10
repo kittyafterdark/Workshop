@@ -436,9 +436,9 @@ var WORKSHOP_CSS = String.raw`
 .workshop-native-scroll { min-height: 0 !important; }
 .workshop-native-form { width: 100% !important; max-width: none !important; margin-inline: 0 !important; }
 .workshop-primary-textarea { min-height: clamp(360px, 48vh, 720px) !important; resize: vertical !important; }
-.workshop-native-form.workshop-variable-sidecar { display: grid !important; grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); column-gap: 22px; align-items: start; }
+.workshop-native-form.workshop-variable-sidecar { display: grid !important; grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); grid-auto-rows: max-content; column-gap: 22px; align-items: start; }
 .workshop-native-form.workshop-variable-sidecar > .workshop-native-main-field { grid-column: 1; }
-.workshop-native-form.workshop-variable-sidecar > .workshop-native-variable-root { grid-column: 2; grid-row: 1 / span 99; min-width: 0; min-height: 0; align-self: start; position: sticky; top: 0; max-height: var(--wk-native-pane-height, calc(100dvh - 220px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-gutter: stable; padding-right: 4px; }
+.workshop-native-form.workshop-variable-sidecar > .workshop-native-variable-root { grid-column: 2; min-width: 0; min-height: 0; align-self: start; position: sticky; top: 0; max-height: var(--wk-native-pane-height, calc(100dvh - 220px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-gutter: stable; padding-right: 4px; }
 
 .workshop-preview-resizer { grid-column: 1; grid-row: 2; position: relative; z-index: 5; cursor: row-resize; touch-action: none; }
 .workshop-preview-resizer::after { content: ''; position: absolute; inset: 2px 0; background: transparent; }
@@ -828,25 +828,62 @@ function createWorkshopSession(ctx, onClosed) {
   function closeMobileRails() {
     root.classList.remove("mobile-left-open", "mobile-right-open");
   }
+  function captureHostScroll() {
+    const snapshots = [];
+    let cursor = root.parentElement;
+    while (cursor) {
+      if (cursor.scrollHeight > cursor.clientHeight || cursor.scrollWidth > cursor.clientWidth || cursor.scrollTop || cursor.scrollLeft) {
+        snapshots.push({ element: cursor, top: cursor.scrollTop, left: cursor.scrollLeft });
+      }
+      cursor = cursor.parentElement;
+    }
+    return snapshots;
+  }
+  function restoreScroll(snapshots) {
+    for (const snapshot of snapshots) {
+      if (!snapshot.element.isConnected)
+        continue;
+      const maxTop = Math.max(0, snapshot.element.scrollHeight - snapshot.element.clientHeight);
+      const maxLeft = Math.max(0, snapshot.element.scrollWidth - snapshot.element.clientWidth);
+      snapshot.element.scrollTop = Math.min(snapshot.top, maxTop);
+      snapshot.element.scrollLeft = Math.min(snapshot.left, maxLeft);
+    }
+  }
+  function preserveHostScrollThroughSelection(work) {
+    const snapshots = captureHostScroll();
+    work();
+    restoreScroll(snapshots);
+    requestAnimationFrame(() => {
+      if (destroyed)
+        return;
+      restoreScroll(snapshots);
+      requestAnimationFrame(() => {
+        if (!destroyed)
+          restoreScroll(snapshots);
+      });
+    });
+  }
   function setSelectedBlock(blockId) {
     if (blockId !== null && !canonicalValue.blocks.some((block) => block.id === blockId))
       return;
-    if (blockId && blockId === secondaryBlockId) {
-      secondaryBlockId = null;
-      secondaryDraftValue = null;
-      secondaryEditor.update({ selectedBlockId: null });
-    }
-    selectedBlockId = blockId;
-    if (!blockId)
-      primaryDraftValue = null;
-    recomputeDerived();
-    editor.update({ selectedBlockId: blockId });
-    renderEditorVisibility();
-    renderPrompts();
-    renderVariables();
-    setDraftStatus();
-    scheduleNativeDecoration();
-    closeMobileRails();
+    preserveHostScrollThroughSelection(() => {
+      if (blockId && blockId === secondaryBlockId) {
+        secondaryBlockId = null;
+        secondaryDraftValue = null;
+        secondaryEditor.update({ selectedBlockId: null });
+      }
+      selectedBlockId = blockId;
+      if (!blockId)
+        primaryDraftValue = null;
+      recomputeDerived();
+      editor.update({ selectedBlockId: blockId });
+      renderEditorVisibility();
+      renderPrompts();
+      renderVariables();
+      setDraftStatus();
+      scheduleNativeDecoration();
+      closeMobileRails();
+    });
   }
   function setSecondaryBlock(blockId) {
     if (blockId !== null) {
@@ -854,17 +891,19 @@ function createWorkshopSession(ctx, onClosed) {
       if (!block || block.marker === "category" || blockId === selectedBlockId)
         return;
     }
-    secondaryBlockId = blockId;
-    if (!blockId)
-      secondaryDraftValue = null;
-    recomputeDerived();
-    secondaryEditor.update({ selectedBlockId: blockId });
-    renderEditorVisibility();
-    renderPrompts();
-    renderVariables();
-    setDraftStatus();
-    scheduleNativeDecoration();
-    closeMobileRails();
+    preserveHostScrollThroughSelection(() => {
+      secondaryBlockId = blockId;
+      if (!blockId)
+        secondaryDraftValue = null;
+      recomputeDerived();
+      secondaryEditor.update({ selectedBlockId: blockId });
+      renderEditorVisibility();
+      renderPrompts();
+      renderVariables();
+      setDraftStatus();
+      scheduleNativeDecoration();
+      closeMobileRails();
+    });
   }
   function renderEditorVisibility() {
     const dual = Boolean(selectedBlockId && secondaryBlockId);
@@ -885,6 +924,8 @@ function createWorkshopSession(ctx, onClosed) {
     rightRailButton.setAttribute("aria-label", rightRailButton.title);
   }
   function renderPrompts() {
+    const previousScrollTop = promptList.scrollTop;
+    const previousScrollLeft = promptList.scrollLeft;
     const value = effectiveValue();
     const index = variableIndex();
     const query = promptQuery.trim().toLowerCase();
@@ -993,6 +1034,8 @@ function createWorkshopSession(ctx, onClosed) {
     }
     promptCount.textContent = `${visible}/${value.blocks.length}`;
     promptNote.textContent = selectedVariable ? "Variable map: owner blocks use the primary marker; reference blocks use the warning marker." : `${index.definitionCount} definitions · ${index.referenceCount} references`;
+    promptList.scrollTop = Math.min(previousScrollTop, Math.max(0, promptList.scrollHeight - promptList.clientHeight));
+    promptList.scrollLeft = Math.min(previousScrollLeft, Math.max(0, promptList.scrollWidth - promptList.clientWidth));
   }
   function appendDefinitionDetail(container, entry) {
     const primary = entry.definitions[0];
@@ -1164,6 +1207,8 @@ function createWorkshopSession(ctx, onClosed) {
     container.append(diagnostics);
   }
   function renderVariables() {
+    const previousScrollTop = variableList.scrollTop;
+    const previousScrollLeft = variableList.scrollLeft;
     const index = variableIndex();
     const query = variableQuery.trim().toLowerCase();
     variableList.replaceChildren();
@@ -1228,6 +1273,8 @@ function createWorkshopSession(ctx, onClosed) {
     appendCards(current ? "THIS PROMPT" : "", contextual);
     appendCards(current ? "ALL VARIABLES" : "ALL VARIABLES", visibleEntries.filter((entry) => !contextualNames.has(entry.name)));
     renderDiagnostics(variableList, index);
+    variableList.scrollTop = Math.min(previousScrollTop, Math.max(0, variableList.scrollHeight - variableList.clientHeight));
+    variableList.scrollLeft = Math.min(previousScrollLeft, Math.max(0, variableList.scrollWidth - variableList.clientWidth));
   }
   function renderPreview() {
     previewContent.replaceChildren();
@@ -1373,12 +1420,14 @@ function createWorkshopSession(ctx, onClosed) {
       if (!(child instanceof HTMLElement))
         continue;
       child.classList.remove("workshop-native-main-field", "workshop-native-variable-root");
+      child.style.removeProperty("grid-row");
     }
     if (!sidecar)
       return;
     const variableRoot = form.lastElementChild;
     if (!(variableRoot instanceof HTMLElement))
       return;
+    const mainFields = [...form.children].filter((child) => child instanceof HTMLElement && child !== variableRoot);
     const formStyle = getComputedStyle(form);
     const paddingTop = Number.parseFloat(formStyle.paddingTop) || 0;
     const paddingBottom = Number.parseFloat(formStyle.paddingBottom) || 0;
@@ -1387,6 +1436,7 @@ function createWorkshopSession(ctx, onClosed) {
     if (availablePaneHeight > 0)
       form.style.setProperty("--wk-native-pane-height", `${availablePaneHeight}px`);
     form.classList.add("workshop-variable-sidecar");
+    variableRoot.style.gridRow = `1 / span ${Math.max(1, mainFields.length)}`;
     for (const child of [...form.children]) {
       if (!(child instanceof HTMLElement))
         continue;
@@ -1859,8 +1909,56 @@ function setup(ctx) {
     host.style.alignSelf = "stretch";
     toolbar.root.style.width = "100%";
   };
+  let setupDestroyed = false;
+  let toolbarRepairTimer = null;
+  let toolbarReopenFrame = null;
+  let toolbarRepairAttempts = 0;
+  const MAX_TOOLBAR_REPAIR_ATTEMPTS = 3;
+  const scheduleToolbarRepair = () => {
+    if (setupDestroyed || toolbarRepairTimer !== null || toolbarReopenFrame !== null)
+      return;
+    toolbarRepairTimer = window.setTimeout(() => {
+      toolbarRepairTimer = null;
+      if (setupDestroyed)
+        return;
+      fitToolbarHost();
+      if (toolbar.root.isConnected) {
+        toolbarRepairAttempts = 0;
+        return;
+      }
+      let state;
+      try {
+        state = ctx.ui.presetEditor.getState();
+      } catch {
+        return;
+      }
+      if (!state.open || toolbarRepairAttempts >= MAX_TOOLBAR_REPAIR_ATTEMPTS)
+        return;
+      toolbarRepairAttempts += 1;
+      try {
+        toolbar.setVisible(false);
+      } catch {
+        return;
+      }
+      toolbarReopenFrame = requestAnimationFrame(() => {
+        toolbarReopenFrame = null;
+        if (setupDestroyed)
+          return;
+        try {
+          toolbar.setVisible(true);
+        } catch {
+          return;
+        }
+        scheduleToolbarRepair();
+      });
+    }, 80);
+  };
   fitToolbarHost();
-  const toolbarHostObserver = new MutationObserver(fitToolbarHost);
+  scheduleToolbarRepair();
+  const toolbarHostObserver = new MutationObserver(() => {
+    fitToolbarHost();
+    scheduleToolbarRepair();
+  });
   toolbarHostObserver.observe(document.body, { childList: true, subtree: true });
   let session = null;
   let opening = false;
@@ -1885,6 +1983,7 @@ function setup(ctx) {
   launcher.addEventListener("click", open);
   const unsubscribe = ctx.ui.presetEditor.onChange((state) => {
     fitToolbarHost();
+    scheduleToolbarRepair();
     if (session && (!state.open || !state.presetId || !state.preset)) {
       session.destroy(true).finally(() => {
         session = null;
@@ -1892,9 +1991,14 @@ function setup(ctx) {
     }
   });
   return () => {
+    setupDestroyed = true;
     launcher.removeEventListener("click", open);
     unsubscribe();
     toolbarHostObserver.disconnect();
+    if (toolbarRepairTimer !== null)
+      window.clearTimeout(toolbarRepairTimer);
+    if (toolbarReopenFrame !== null)
+      cancelAnimationFrame(toolbarReopenFrame);
     for (const [host, previous] of styledToolbarHosts) {
       host.style.flex = previous.flex;
       host.style.width = previous.width;

@@ -1,6 +1,6 @@
-# Lumiverse Workshop v0.2.3 — Source Manifest
+# Lumiverse Workshop v0.2.5 — Source Manifest
 
-Cumulative editable source package. This patch bounds the native prompt-variable sidecar to the live editor viewport so variable-heavy blocks scroll independently without stretching the whole block form.
+Cumulative editable source package. This patch preserves prompt/variable rail position and host-modal scroll during prompt selection so long presets do not jump back to the top when Workshop rerenders its navigation surfaces.
 
 ## Files
 

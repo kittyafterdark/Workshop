@@ -10,12 +10,15 @@ describe('Workshop frontend layout contract', () => {
     expect(source).not.toContain("tooltip: 'Workshop'")
   })
 
-  test('keeps the launcher visible and stretches each Loom toolbar host', () => {
+  test('keeps the launcher visible, stretches Loom toolbar hosts, and repairs the deferred host-mount race', () => {
     expect(source).toContain('toolbar.setVisible(true)')
     expect(source).toContain("toolbar.root.style.width = '100%'")
     expect(source).toContain("host.style.flex = '1 1 100%'")
     expect(source).toContain("host.style.width = '100%'")
-    expect(source).toContain('new MutationObserver(fitToolbarHost)')
+    expect(source).toContain('scheduleToolbarRepair()')
+    expect(source).toContain('if (toolbar.root.isConnected)')
+    expect(source).toContain('toolbar.setVisible(false)')
+    expect(source).toContain('MAX_TOOLBAR_REPAIR_ATTEMPTS = 3')
   })
 
   test('gives each rail ownership of its own collapse control', () => {
@@ -48,13 +51,27 @@ describe('Workshop frontend layout contract', () => {
     expect(source).not.toContain('append(variableRoot)')
   })
 
-  test('bounds the variable sidecar to the live native editor viewport and lets it scroll independently', () => {
+  test('bounds the variable sidecar without manufacturing empty native-scroll rows', () => {
     expect(source).toContain('max-height: var(--wk-native-pane-height, calc(100dvh - 220px))')
     expect(source).toContain('overflow-y: auto')
     expect(source).toContain('scrollbar-gutter: stable')
+    expect(source).toContain('grid-auto-rows: max-content')
     expect(source).toContain('Math.min(scroll.clientHeight, mount.clientHeight || scroll.clientHeight)')
     expect(source).toContain("form.style.setProperty('--wk-native-pane-height'")
+    expect(source).toContain('variableRoot.style.gridRow = `1 / span ${Math.max(1, mainFields.length)}`')
+    expect(source).not.toContain('grid-row: 1 / span 99')
     expect(source).toContain('new ResizeObserver(scheduleNativeDecoration)')
+  })
+
+
+  test('preserves pane and host scroll position when prompt selection rerenders Workshop', () => {
+    expect(source).toContain('const previousScrollTop = promptList.scrollTop')
+    expect(source).toContain('promptList.scrollTop = Math.min(previousScrollTop')
+    expect(source).toContain('const previousScrollTop = variableList.scrollTop')
+    expect(source).toContain('variableList.scrollTop = Math.min(previousScrollTop')
+    expect(source).toContain('function preserveHostScrollThroughSelection(work: () => void): void')
+    expect(source).toContain('preserveHostScrollThroughSelection(() => {')
+    expect(source).toContain('requestAnimationFrame(() => {')
   })
 
   test('renders real Loom categories and reserves edit actions for category headers', () => {
