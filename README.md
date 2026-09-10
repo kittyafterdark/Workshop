@@ -8,7 +8,7 @@ Workshop targets the controlled Loom editor contract shipped with `lumiverse-spi
 
 ## What it does
 
-- Opens from the Loom preset-editor toolbar into a fullscreen, chromeless workspace.
+- Opens from the Loom preset-editor toolbar into a near-fullscreen host modal, keeping Workshop out of floating-widget drag/tooltip behavior.
 - Uses Lumiverse's native Loom block editor in the center pane; Workshop does not clone prompt editing behavior.
 - Lets the left prompt rail control the native editor's selected block.
 - Aggregates prompt-variable definitions directly from `PromptBlockDTO.variables`, attributes them to their owning block titles, and scans prompt content for `{{var::...}}` references.
@@ -17,7 +17,7 @@ Workshop targets the controlled Loom editor contract shipped with `lumiverse-spi
 - Treats native in-progress drafts as ephemeral overlays. Drafts drive the index and preview but never save themselves.
 - Commits only the selected edited block against the latest host preset draft, so unrelated host/profile changes are not round-tripped from a stale editor snapshot.
 - Uses `spindle.assemble()` for a debounced, cancellable live preview against the active chat without invoking the LLM.
-- Supports resolved-message and assembly-stack views, collapsible/resizable desktop rails, a bottom/side preview layout, and mobile overlay drawers.
+- Supports resolved-message and assembly-stack views, collapsible/resizable desktop rails, a bottom/side preview layout, and mobile overlay drawers. Hiding a side preview collapses it safely to a bottom toolbar rather than leaving a 38px side column.
 
 ## Development
 
@@ -37,3 +37,12 @@ Workshop deliberately has only three layers of state:
 3. The native Loom editor may provide one transient selected-block draft through `onDraftChange`; Workshop overlays that one block onto the latest host mirror for preview only.
 
 Only the native editor's committed `onChange` path writes back to Lumiverse. Targeted writes fail closed if the selected block identity is missing or ambiguous.
+
+
+## 0.1.1 layout fixes
+
+- Workshop now uses the host modal surface instead of a fullscreen float widget.
+- The native Loom editor receives a bounded 100% height so its own `scrollArea` can scroll normally.
+- Side-preview collapse returns to a bottom toolbar, preventing preview/variable-header collisions.
+- The Loom launcher is full-width in the preset extension toolbar.
+- The float-widget-wide `Workshop` tooltip is gone; only intentional button/tooltips remain.

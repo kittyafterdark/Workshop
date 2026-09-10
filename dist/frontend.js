@@ -231,6 +231,8 @@ var WORKSHOP_CSS = String.raw`
 .workshop-launcher {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  width: 100%;
   gap: 7px;
   min-height: 32px;
   padding: 0 11px;
@@ -255,8 +257,10 @@ var WORKSHOP_CSS = String.raw`
 .workshop-shell {
   --wk-left: 268px;
   --wk-right: 336px;
-  position: absolute;
-  inset: 0;
+  position: relative;
+  width: 100%;
+  height: calc(100dvh - 112px);
+  min-height: 0;
   display: grid;
   grid-template-rows: 52px minmax(0, 1fr);
   overflow: hidden;
@@ -385,21 +389,25 @@ var WORKSHOP_CSS = String.raw`
   background: var(--lumiverse-bg-deep, #101014);
 }
 .workshop-shell.preview-collapsed .workshop-center { grid-template-rows: minmax(0, 1fr) 38px; }
-.workshop-shell.preview-split .workshop-center {
+.workshop-shell.preview-split:not(.preview-collapsed) .workshop-center {
   grid-template-columns: minmax(0, 1fr) minmax(330px, 42%);
   grid-template-rows: minmax(0, 1fr);
 }
-.workshop-shell.preview-split.preview-collapsed .workshop-center {
-  grid-template-columns: minmax(0, 1fr) 38px;
+.workshop-shell.preview-collapsed .workshop-center {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 38px;
 }
 .workshop-editor-region {
   min-width: 0;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   padding: 18px 20px 26px;
 }
-.workshop-editor-frame {
+.workshop-editor-frame,
+.workshop-editor-frame > [data-role="editor-mount"] {
   width: min(100%, 1120px);
+  height: 100%;
+  min-height: 0;
   margin: 0 auto;
 }
 .workshop-editor-empty {
@@ -425,7 +433,9 @@ var WORKSHOP_CSS = String.raw`
   border-top: 1px solid var(--lumiverse-border, rgba(255,255,255,.1));
   background: var(--lumiverse-bg-dark, #141419);
 }
-.preview-split .workshop-preview { border-top: 0; border-left: 1px solid var(--lumiverse-border, rgba(255,255,255,.1)); }
+.preview-split:not(.preview-collapsed) .workshop-preview { border-top: 0; border-left: 1px solid var(--lumiverse-border, rgba(255,255,255,.1)); }
+.preview-collapsed .workshop-preview { border-left: 0; border-top: 1px solid var(--lumiverse-border, rgba(255,255,255,.1)); }
+.preview-split:not(.preview-collapsed) .workshop-preview-status { display: none; }
 .workshop-preview-toolbar {
   min-width: 0;
   display: flex;
@@ -669,20 +679,19 @@ var WORKSHOP_CSS = String.raw`
     position: relative;
   }
   .workshop-center,
-  .workshop-shell.preview-split .workshop-center {
+  .workshop-shell.preview-split:not(.preview-collapsed) .workshop-center {
     position: absolute;
     inset: 0;
     display: grid;
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr) minmax(165px, 32vh);
   }
-  .workshop-shell.preview-collapsed .workshop-center,
-  .workshop-shell.preview-split.preview-collapsed .workshop-center {
+  .workshop-shell.preview-collapsed .workshop-center {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr) 38px;
   }
   .workshop-preview,
-  .preview-split .workshop-preview { border-left: 0; border-top: 1px solid var(--lumiverse-border); }
+  .preview-split:not(.preview-collapsed) .workshop-preview { border-left: 0; border-top: 1px solid var(--lumiverse-border); }
   .workshop-rail {
     position: absolute;
     top: 0;
@@ -804,14 +813,19 @@ function createWorkshopSession(ctx, onClosed) {
   if (!initialState.open || !initialState.presetId || !initialState.preset || !initialValue)
     return null;
   const sessionPresetId = initialState.presetId;
-  const widget = ctx.ui.createFloatWidget({ fullscreen: true, chromeless: true, tooltip: "Workshop" });
-  const root = document.createElement("div");
+  const modal = ctx.ui.showModal({
+    title: "Workshop",
+    width: window.innerWidth,
+    maxHeight: window.innerHeight,
+    persistent: true
+  });
+  const root = modal.root;
   root.className = "workshop-shell";
+  root.tabIndex = -1;
   root.innerHTML = `
     <header class="workshop-header">
       <button class="workshop-icon-button workshop-mobile-only" type="button" data-action="mobile-left" aria-label="Open prompts">${ICONS.right}</button>
       <div class="workshop-brand">
-        <span class="workshop-title">Workshop</span>
         <span class="workshop-preset-name"></span>
       </div>
       <div class="workshop-header-spacer"></div>
@@ -862,7 +876,6 @@ function createWorkshopSession(ctx, onClosed) {
       </aside>
     </div>
   `;
-  widget.root.append(root);
   const presetName = root.querySelector(".workshop-preset-name");
   const statusDot = root.querySelector(".workshop-dot");
   const statusCopy = root.querySelector(".workshop-status-copy");
@@ -1305,7 +1318,7 @@ function createWorkshopSession(ctx, onClosed) {
     }
   }
   function schedulePreview(immediate = false) {
-    if (destroyed)
+    if (destroyed || previewCollapsed)
       return;
     if (previewTimer)
       clearTimeout(previewTimer);
@@ -1457,9 +1470,14 @@ function createWorkshopSession(ctx, onClosed) {
         console.warn("[Workshop] Preset flush failed while closing:", error);
       }
     }
-    widget.destroy();
+    modal.dismiss();
     onClosed();
   }
+  const modalDismissUnsubscribe = modal.onDismiss(() => {
+    if (!destroyed)
+      closeWorkshop(true);
+  });
+  cleanups.push(modalDismissUnsubscribe);
   const presetUnsubscribe = ctx.ui.presetEditor.onChange((state) => {
     if (destroyed)
       return;
@@ -1551,6 +1569,20 @@ function createWorkshopSession(ctx, onClosed) {
     previewCollapsed = !previewCollapsed;
     root.classList.toggle("preview-collapsed", previewCollapsed);
     previewCollapseButton.textContent = previewCollapsed ? "Show" : "Hide";
+    if (previewCollapsed) {
+      if (previewTimer) {
+        clearTimeout(previewTimer);
+        previewTimer = null;
+      }
+      if (activePreviewRequestId) {
+        ctx.sendToBackend({ type: "workshop:cancel-preview", requestId: activePreviewRequestId });
+        activePreviewRequestId = null;
+      }
+      previewLoading = false;
+      renderPreview();
+    } else {
+      schedulePreview(true);
+    }
   });
   function installResizer(side) {
     const handle = root.querySelector(`[data-resize="${side}"]`);
@@ -1594,8 +1626,7 @@ function createWorkshopSession(ctx, onClosed) {
   return {
     destroy: closeWorkshop,
     focus() {
-      widget.setVisible(true);
-      widget.setFullscreen(true);
+      root.focus({ preventScroll: true });
     }
   };
 }
@@ -1606,7 +1637,29 @@ function setup(ctx) {
     ariaLabel: "Open Workshop"
   });
   const launcher = button("workshop-launcher", "Open Workshop", `${ICONS.workshop}<span>Workshop</span>`);
+  toolbar.root.style.display = "block";
+  toolbar.root.style.width = "100%";
   toolbar.root.append(launcher);
+  let toolbarHost = null;
+  let toolbarHostObserver = null;
+  const fitToolbarHost = () => {
+    const host = toolbar.root.parentElement;
+    if (!(host instanceof HTMLElement))
+      return false;
+    toolbarHost = host;
+    host.style.flex = "1 1 100%";
+    host.style.width = "100%";
+    return true;
+  };
+  if (!fitToolbarHost()) {
+    toolbarHostObserver = new MutationObserver(() => {
+      if (!fitToolbarHost())
+        return;
+      toolbarHostObserver?.disconnect();
+      toolbarHostObserver = null;
+    });
+    toolbarHostObserver.observe(document.body, { childList: true, subtree: true });
+  }
   let session = null;
   let opening = false;
   const updateVisibility = () => {
@@ -1645,6 +1698,11 @@ function setup(ctx) {
   return () => {
     launcher.removeEventListener("click", open);
     unsubscribe();
+    toolbarHostObserver?.disconnect();
+    if (toolbarHost) {
+      toolbarHost.style.removeProperty("flex");
+      toolbarHost.style.removeProperty("width");
+    }
     toolbar.destroy();
     removeStyle();
     const active = session;
