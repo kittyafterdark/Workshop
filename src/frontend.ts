@@ -208,7 +208,7 @@ const WORKSHOP_CSS = String.raw`
 .workshop-primary-textarea { min-height: clamp(360px, 48vh, 720px) !important; resize: vertical !important; }
 .workshop-native-form.workshop-variable-sidecar { display: grid !important; grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); column-gap: 22px; align-items: start; }
 .workshop-native-form.workshop-variable-sidecar > .workshop-native-main-field { grid-column: 1; }
-.workshop-native-form.workshop-variable-sidecar > .workshop-native-variable-root { grid-column: 2; grid-row: 1 / span 99; min-width: 0; align-self: start; position: sticky; top: 0; }
+.workshop-native-form.workshop-variable-sidecar > .workshop-native-variable-root { grid-column: 2; grid-row: 1 / span 99; min-width: 0; min-height: 0; align-self: start; position: sticky; top: 0; max-height: var(--wk-native-pane-height, calc(100dvh - 220px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; scrollbar-gutter: stable; padding-right: 4px; }
 
 .workshop-preview-resizer { grid-column: 1; grid-row: 2; position: relative; z-index: 5; cursor: row-resize; touch-action: none; }
 .workshop-preview-resizer::after { content: ''; position: absolute; inset: 2px 0; background: transparent; }
@@ -293,7 +293,7 @@ const WORKSHOP_CSS = String.raw`
 
 @media (max-width: 1180px) {
   .workshop-native-form.workshop-variable-sidecar { display: block !important; }
-  .workshop-native-form.workshop-variable-sidecar > .workshop-native-variable-root { position: static; }
+  .workshop-native-form.workshop-variable-sidecar > .workshop-native-variable-root { position: static; max-height: none; overflow: visible; scrollbar-gutter: auto; padding-right: 0; }
 }
 
 @media (max-width: ${MOBILE_BREAKPOINT}px) {
@@ -1173,6 +1173,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     if (!(form instanceof HTMLElement)) return
     form.classList.add('workshop-native-form')
     form.classList.remove('workshop-variable-sidecar')
+    form.style.removeProperty('--wk-native-pane-height')
     for (const child of [...form.children]) {
       if (!(child instanceof HTMLElement)) continue
       child.classList.remove('workshop-native-main-field', 'workshop-native-variable-root')
@@ -1181,6 +1182,12 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     if (!sidecar) return
     const variableRoot = form.lastElementChild
     if (!(variableRoot instanceof HTMLElement)) return
+    const formStyle = getComputedStyle(form)
+    const paddingTop = Number.parseFloat(formStyle.paddingTop) || 0
+    const paddingBottom = Number.parseFloat(formStyle.paddingBottom) || 0
+    const nativeViewportHeight = Math.min(scroll.clientHeight, mount.clientHeight || scroll.clientHeight)
+    const availablePaneHeight = Math.floor(nativeViewportHeight - paddingTop - paddingBottom)
+    if (availablePaneHeight > 0) form.style.setProperty('--wk-native-pane-height', `${availablePaneHeight}px`)
     form.classList.add('workshop-variable-sidecar')
     for (const child of [...form.children]) {
       if (!(child instanceof HTMLElement)) continue
@@ -1209,7 +1216,14 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   const secondaryObserver = new MutationObserver(scheduleNativeDecoration)
   primaryObserver.observe(editorMount, { childList: true, subtree: true })
   secondaryObserver.observe(secondaryEditorMount, { childList: true, subtree: true })
-  cleanups.push(() => primaryObserver.disconnect(), () => secondaryObserver.disconnect())
+  const editorResizeObserver = new ResizeObserver(scheduleNativeDecoration)
+  editorResizeObserver.observe(primarySlot)
+  editorResizeObserver.observe(secondarySlot)
+  cleanups.push(
+    () => primaryObserver.disconnect(),
+    () => secondaryObserver.disconnect(),
+    () => editorResizeObserver.disconnect(),
+  )
 
   function fitWorkshopHeightToModalBody(): void {
     const body = root.parentElement

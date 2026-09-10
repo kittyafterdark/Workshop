@@ -1,6 +1,6 @@
-# Lumiverse Workshop v0.2.2 — Source Manifest
+# Lumiverse Workshop v0.2.3 — Source Manifest
 
-Cumulative editable source package. This patch fixes category chevron SVG intrinsic sizing without changing the Workshop state model or host contracts.
+Cumulative editable source package. This patch bounds the native prompt-variable sidecar to the live editor viewport so variable-heavy blocks scroll independently without stretching the whole block form.
 
 ## Files
 

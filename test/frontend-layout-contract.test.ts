@@ -48,6 +48,15 @@ describe('Workshop frontend layout contract', () => {
     expect(source).not.toContain('append(variableRoot)')
   })
 
+  test('bounds the variable sidecar to the live native editor viewport and lets it scroll independently', () => {
+    expect(source).toContain('max-height: var(--wk-native-pane-height, calc(100dvh - 220px))')
+    expect(source).toContain('overflow-y: auto')
+    expect(source).toContain('scrollbar-gutter: stable')
+    expect(source).toContain('Math.min(scroll.clientHeight, mount.clientHeight || scroll.clientHeight)')
+    expect(source).toContain("form.style.setProperty('--wk-native-pane-height'")
+    expect(source).toContain('new ResizeObserver(scheduleNativeDecoration)')
+  })
+
   test('renders real Loom categories and reserves edit actions for category headers', () => {
     expect(source).toContain('for (const group of computePromptGroups(value.blocks))')
     expect(source).toContain('collapsedCategories.has(category.id)')

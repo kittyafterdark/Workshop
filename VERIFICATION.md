@@ -1,4 +1,4 @@
-# Workshop 0.2.2 verification
+# Workshop 0.2.3 verification
 
 Workshop targets `lumiverse-spindle-types` 0.6.31.
 
@@ -34,3 +34,10 @@ Selected blocks disappearing before commit and ambiguous duplicate identities co
 
 - Workshop shell height is fitted to the actual Spindle modal body content box so the collapsed preview toolbar remains visible.
 - Native Loom forms are uncapped inside Workshop (`max-width: none`) while the outer Workshop slot still controls the maximum workspace width.
+
+## 0.2.3 focused regression
+
+- The single-prompt variable sidecar receives a measured `--wk-native-pane-height` capped to the smaller of the current native Loom scroll viewport and the Workshop editor mount viewport.
+- Variable-heavy blocks use an independent sidecar scrollbar instead of forcing the prompt form to match the full variable collection height.
+- A `ResizeObserver` refreshes the measured pane height when Workshop geometry changes.
+- Below the desktop sidecar breakpoint, the variable editor returns to normal document flow with no independent height cap.

@@ -6,6 +6,13 @@ Workshop is a near-fullscreen Loom preset workspace for Lumiverse. It keeps Lumi
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.2.3 independent pane scrolling
+
+- Bounds the single-prompt native variable sidecar to the actual Loom editor viewport instead of letting large variable collections determine the whole form height.
+- Gives the variable sidecar its own vertical scroll while the native Loom scroll container continues to own prompt-form scrolling.
+- Recomputes the sidecar height when the editor lane resizes, including Workshop preview resizing and modal viewport changes.
+- Restores ordinary stacked/flowing variable behavior below the desktop sidecar breakpoint.
+
 ## 0.2.2 fit-and-width pass
 
 - Keeps the collapsed dry-run toolbar fully inside the host modal body instead of letting it fall below the modal viewport.
