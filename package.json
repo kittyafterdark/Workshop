@@ -1,0 +1,16 @@
+{
+  "name": "lumiverse-workshop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run scripts/build.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "verify": "bun run typecheck && bun test && bun run build"
+  },
+  "devDependencies": {
+    "lumiverse-spindle-types": "0.6.31",
+    "typescript": "^5.9.2"
+  }
+}

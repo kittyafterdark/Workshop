@@ -1,0 +1,16 @@
+{
+  "version": "0.1.0",
+  "name": "Workshop",
+  "identifier": "workshop",
+  "author": "Kitty Lotus",
+  "github": "https://github.com/kittyafterdark/Lumiverse-Workshop",
+  "homepage": "https://github.com/kittyafterdark/Lumiverse-Workshop",
+  "description": "A fullscreen Loom preset workspace with prompt navigation, variable topology, diagnostics, and live assembly preview.",
+  "permissions": [
+    "presets",
+    "ui_panels",
+    "generation"
+  ],
+  "entry_backend": "dist/backend.js",
+  "entry_frontend": "dist/frontend.js"
+}
