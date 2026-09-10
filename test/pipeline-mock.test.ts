@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { PromptBlockDTO, PromptVariableValuesDTO } from 'lumiverse-spindle-types'
-import { overlaySelectedDraft, replaceUniqueBlock } from '../src/workshop-core.js'
+import { overlaySelectedDraft, overlaySelectedDrafts, replaceUniqueBlock } from '../src/workshop-core.js'
 
 function block(id: string, content: string): PromptBlockDTO {
   return {
@@ -45,6 +45,37 @@ describe('Workshop host/draft pipeline mock', () => {
     expect(preview.promptVariableValues).toEqual({
       selected: { mode: 'draft' },
       external: { mode: 'fresh' },
+    })
+  })
+
+  test('keeps two independent editor drafts while preserving a third externally refreshed block', () => {
+    const host = {
+      blocks: [block('a', 'host A'), block('b', 'host B'), block('c', 'external fresh C')],
+      promptVariableValues: {
+        a: { mode: 'host-a' },
+        b: { mode: 'host-b' },
+        c: { mode: 'fresh-c' },
+      } satisfies PromptVariableValuesDTO,
+    }
+    const draftA = {
+      blocks: [block('a', 'draft A'), block('b', 'stale B from A'), block('c', 'stale C from A')],
+      promptVariableValues: { a: { mode: 'draft-a' } } satisfies PromptVariableValuesDTO,
+    }
+    const draftB = {
+      blocks: [block('a', 'stale A from B'), block('b', 'draft B'), block('c', 'stale C from B')],
+      promptVariableValues: { b: { mode: 'draft-b' } } satisfies PromptVariableValuesDTO,
+    }
+
+    const preview = overlaySelectedDrafts(host, [
+      { selectedBlockId: 'a', value: draftA },
+      { selectedBlockId: 'b', value: draftB },
+    ])
+
+    expect(preview.blocks.map((entry) => entry.content)).toEqual(['draft A', 'draft B', 'external fresh C'])
+    expect(preview.promptVariableValues).toEqual({
+      a: { mode: 'draft-a' },
+      b: { mode: 'draft-b' },
+      c: { mode: 'fresh-c' },
     })
   })
 

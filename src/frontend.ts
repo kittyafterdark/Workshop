@@ -13,7 +13,8 @@ import { isWorkshopBackendMessage } from './shared.js'
 import {
   blockVariableStats,
   buildVariableIndex,
-  overlaySelectedDraft,
+  computePromptGroups,
+  overlaySelectedDrafts,
   parsePromptVariableReferences,
   promptBlockSearchText,
   replaceUniqueBlock,
@@ -28,23 +29,27 @@ const LEFT_MIN = 210
 const LEFT_MAX = 480
 const RIGHT_MIN = 250
 const RIGHT_MAX = 560
+const PREVIEW_HEIGHT_MIN = 120
+const PREVIEW_WIDTH_MIN = 300
+const PREVIEW_WIDTH_MAX = 760
 
 const WORKSHOP_CSS = String.raw`
 .workshop-launcher {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
+  min-width: 0;
   gap: 7px;
-  min-height: 32px;
-  padding: 0 11px;
+  min-height: 36px;
+  padding: 0 12px;
   border: 1px solid var(--lumiverse-border-neutral, var(--lumiverse-border));
   border-radius: 8px;
   background: var(--lumiverse-fill-subtle, rgba(255,255,255,.04));
   color: var(--lumiverse-text);
   font: inherit;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 700;
   cursor: pointer;
   transition: border-color var(--lumiverse-transition-fast, 120ms ease), background var(--lumiverse-transition-fast, 120ms ease);
 }
@@ -59,10 +64,12 @@ const WORKSHOP_CSS = String.raw`
 .workshop-shell {
   --wk-left: 268px;
   --wk-right: 336px;
+  --wk-preview-height: 300px;
+  --wk-preview-width: 430px;
   position: relative;
   width: 100%;
-  height: calc(100dvh - 112px);
-  min-height: 0;
+  height: calc(100dvh - 92px);
+  min-height: 520px;
   display: grid;
   grid-template-rows: 52px minmax(0, 1fr);
   overflow: hidden;
@@ -79,17 +86,7 @@ const WORKSHOP_CSS = String.raw`
   border-bottom: 1px solid var(--lumiverse-border, rgba(255,255,255,.1));
   background: var(--lumiverse-bg-dark, #141419);
 }
-.workshop-brand {
-  display: flex;
-  align-items: baseline;
-  gap: 9px;
-  min-width: 0;
-}
-.workshop-title {
-  font-size: 15px;
-  font-weight: 750;
-  letter-spacing: .01em;
-}
+.workshop-brand { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
 .workshop-preset-name {
   min-width: 0;
   overflow: hidden;
@@ -107,12 +104,7 @@ const WORKSHOP_CSS = String.raw`
   font-size: 11px;
   white-space: nowrap;
 }
-.workshop-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--lumiverse-text-dim, #777);
-}
+.workshop-dot { width: 7px; height: 7px; border-radius: 999px; background: var(--lumiverse-text-dim, #777); }
 .workshop-dot.is-draft { background: var(--lumiverse-warning, #e8b04c); }
 .workshop-icon-button,
 .workshop-text-button,
@@ -121,37 +113,34 @@ const WORKSHOP_CSS = String.raw`
 .workshop-variable-card,
 .workshop-link-button,
 .workshop-diagnostic-row,
-.workshop-breakdown-row {
-  font: inherit;
-}
+.workshop-breakdown-row { font: inherit; }
 .workshop-icon-button,
-.workshop-text-button {
+.workshop-text-button,
+.workshop-mini-button {
   border: 1px solid var(--lumiverse-border-neutral, var(--lumiverse-border));
   background: var(--lumiverse-fill-subtle, rgba(255,255,255,.04));
   color: var(--lumiverse-text);
   border-radius: 8px;
   cursor: pointer;
 }
-.workshop-icon-button {
-  width: 34px;
-  height: 34px;
-  display: inline-grid;
-  place-items: center;
-  padding: 0;
-}
+.workshop-icon-button { width: 34px; height: 34px; display: inline-grid; place-items: center; padding: 0; flex: 0 0 auto; }
 .workshop-icon-button svg { width: 16px; height: 16px; }
-.workshop-text-button { min-height: 32px; padding: 0 10px; font-size: 12px; }
+.workshop-text-button { min-height: 30px; padding: 0 9px; font-size: 11px; }
+.workshop-mini-button { width: 24px; height: 24px; display: inline-grid; place-items: center; padding: 0; }
+.workshop-mini-button svg { width: 13px; height: 13px; }
 .workshop-icon-button:hover,
 .workshop-text-button:hover,
+.workshop-mini-button:hover,
 .workshop-link-button:hover { border-color: var(--lumiverse-primary, currentColor); }
+
 .workshop-body {
   min-height: 0;
   min-width: 0;
   display: grid;
   grid-template-columns: var(--wk-left) 5px minmax(0, 1fr) 5px var(--wk-right);
 }
-.workshop-shell.left-collapsed { --wk-left: 0px; }
-.workshop-shell.right-collapsed { --wk-right: 0px; }
+.workshop-shell.left-collapsed { --wk-left: 38px; }
+.workshop-shell.right-collapsed { --wk-right: 38px; }
 .workshop-rail {
   min-height: 0;
   min-width: 0;
@@ -162,357 +151,186 @@ const WORKSHOP_CSS = String.raw`
 }
 .workshop-rail.left { grid-column: 1; border-right: 1px solid var(--lumiverse-border, rgba(255,255,255,.1)); }
 .workshop-rail.right { grid-column: 5; border-left: 1px solid var(--lumiverse-border, rgba(255,255,255,.1)); }
-.left-collapsed .workshop-rail.left,
-.right-collapsed .workshop-rail.right { visibility: hidden; }
-.workshop-resizer {
-  position: relative;
-  z-index: 4;
-  cursor: col-resize;
-  touch-action: none;
+.workshop-rail-header {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 7px 5px 11px;
 }
+.workshop-rail-title { font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--lumiverse-text-muted); }
+.workshop-count { margin-left: auto; font-size: 10px; color: var(--lumiverse-text-dim); }
+.workshop-rail-collapse { margin-left: 2px; }
+.left-collapsed .workshop-rail.left .workshop-rail-title,
+.left-collapsed .workshop-rail.left .workshop-count,
+.left-collapsed .workshop-rail.left .workshop-search-wrap,
+.left-collapsed .workshop-rail.left .workshop-scroll,
+.left-collapsed .workshop-rail.left .workshop-rail-note,
+.right-collapsed .workshop-rail.right .workshop-rail-title,
+.right-collapsed .workshop-rail.right .workshop-count,
+.right-collapsed .workshop-rail.right .workshop-search-wrap,
+.right-collapsed .workshop-rail.right .workshop-scroll,
+.right-collapsed .workshop-rail.right .workshop-rail-note { display: none; }
+.left-collapsed .workshop-rail.left .workshop-rail-header,
+.right-collapsed .workshop-rail.right .workshop-rail-header { justify-content: center; padding: 7px 2px; }
+.left-collapsed .workshop-rail-collapse,
+.right-collapsed .workshop-rail-collapse { margin: 0; }
+.workshop-resizer { position: relative; z-index: 4; cursor: col-resize; touch-action: none; }
 .workshop-resizer.left { grid-column: 2; }
 .workshop-resizer.right { grid-column: 4; }
-.workshop-resizer::after {
-  content: '';
-  position: absolute;
-  inset: 0 2px;
-  background: transparent;
-}
+.workshop-resizer::after { content: ''; position: absolute; inset: 0 2px; background: transparent; }
 .workshop-resizer:hover::after,
 .workshop-resizer.is-dragging::after { background: var(--lumiverse-primary-025, rgba(255,255,255,.18)); }
 .left-collapsed .workshop-resizer.left,
-.right-collapsed .workshop-resizer.right { display: none; }
+.right-collapsed .workshop-resizer.right { cursor: default; }
+
 .workshop-center {
   grid-column: 3;
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) minmax(190px, 34vh);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 5px var(--wk-preview-height);
   background: var(--lumiverse-bg-deep, #101014);
 }
-.workshop-shell.preview-collapsed .workshop-center { grid-template-rows: minmax(0, 1fr) 38px; }
-.workshop-shell.preview-split:not(.preview-collapsed) .workshop-center {
-  grid-template-columns: minmax(0, 1fr) minmax(330px, 42%);
-  grid-template-rows: minmax(0, 1fr);
-}
-.workshop-shell.preview-collapsed .workshop-center {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) 38px;
-}
-.workshop-editor-region {
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  padding: 18px 20px 26px;
-}
-.workshop-editor-frame,
-.workshop-editor-frame > [data-role="editor-mount"] {
-  width: min(100%, 1120px);
-  height: 100%;
-  min-height: 0;
-  margin: 0 auto;
-}
-.workshop-editor-empty {
-  min-height: 320px;
-  display: grid;
-  place-items: center;
-  text-align: center;
-  color: var(--lumiverse-text-muted, #999);
-}
-.workshop-empty-card {
-  max-width: 420px;
-  padding: 26px;
-  border: 1px dashed var(--lumiverse-border-neutral, var(--lumiverse-border));
-  border-radius: 14px;
-  background: var(--lumiverse-fill-subtle, rgba(255,255,255,.025));
-}
+.workshop-editor-region { grid-column: 1; grid-row: 1; min-width: 0; min-height: 0; overflow: hidden; padding: 12px 16px 16px; }
+.workshop-editor-stage { width: 100%; height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.workshop-editor-stage.dual { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.workshop-editor-slot { min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
+.workshop-editor-slot.primary:not(.dual-slot) { width: min(100%, 1500px); margin: 0 auto; }
+.workshop-editor-slot > [data-role$="editor-mount"] { width: 100%; height: 100%; min-height: 0; }
+.workshop-editor-empty { min-height: 320px; height: 100%; display: grid; place-items: center; text-align: center; color: var(--lumiverse-text-muted, #999); }
+.workshop-empty-card { max-width: 420px; padding: 26px; border: 1px dashed var(--lumiverse-border-neutral, var(--lumiverse-border)); border-radius: 14px; background: var(--lumiverse-fill-subtle, rgba(255,255,255,.025)); }
 .workshop-empty-card strong { display: block; color: var(--lumiverse-text); margin-bottom: 7px; }
-.workshop-preview {
-  min-width: 0;
-  min-height: 0;
-  display: grid;
-  grid-template-rows: 38px minmax(0, 1fr);
-  border-top: 1px solid var(--lumiverse-border, rgba(255,255,255,.1));
-  background: var(--lumiverse-bg-dark, #141419);
-}
-.preview-split:not(.preview-collapsed) .workshop-preview { border-top: 0; border-left: 1px solid var(--lumiverse-border, rgba(255,255,255,.1)); }
-.preview-collapsed .workshop-preview { border-left: 0; border-top: 1px solid var(--lumiverse-border, rgba(255,255,255,.1)); }
-.preview-split:not(.preview-collapsed) .workshop-preview-status { display: none; }
-.workshop-preview-toolbar {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 9px;
-  border-bottom: 1px solid var(--lumiverse-border, rgba(255,255,255,.08));
-}
+.workshop-native-layout { height: 100% !important; min-height: 0 !important; }
+.workshop-native-scroll { min-height: 0 !important; }
+.workshop-primary-textarea { min-height: clamp(360px, 48vh, 720px) !important; resize: vertical !important; }
+.workshop-native-form.workshop-variable-sidecar { display: grid !important; grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); column-gap: 22px; align-items: start; }
+.workshop-native-form.workshop-variable-sidecar > .workshop-native-main-field { grid-column: 1; }
+.workshop-native-form.workshop-variable-sidecar > .workshop-native-variable-root { grid-column: 2; grid-row: 1 / span 99; min-width: 0; align-self: start; position: sticky; top: 0; }
+
+.workshop-preview-resizer { grid-column: 1; grid-row: 2; position: relative; z-index: 5; cursor: row-resize; touch-action: none; }
+.workshop-preview-resizer::after { content: ''; position: absolute; inset: 2px 0; background: transparent; }
+.workshop-preview-resizer:hover::after,
+.workshop-preview-resizer.is-dragging::after { background: var(--lumiverse-primary-025, rgba(255,255,255,.18)); }
+.workshop-preview { grid-column: 1; grid-row: 3; min-width: 0; min-height: 0; display: grid; grid-template-rows: 38px minmax(0, 1fr); border-top: 1px solid var(--lumiverse-border, rgba(255,255,255,.1)); background: var(--lumiverse-bg-dark, #141419); }
+.workshop-shell.preview-split:not(.preview-collapsed) .workshop-center { grid-template-columns: minmax(0, 1fr) 5px var(--wk-preview-width); grid-template-rows: minmax(0, 1fr); }
+.workshop-shell.preview-split:not(.preview-collapsed) .workshop-editor-region { grid-column: 1; grid-row: 1; }
+.workshop-shell.preview-split:not(.preview-collapsed) .workshop-preview-resizer { grid-column: 2; grid-row: 1; cursor: col-resize; }
+.workshop-shell.preview-split:not(.preview-collapsed) .workshop-preview-resizer::after { inset: 0 2px; }
+.workshop-shell.preview-split:not(.preview-collapsed) .workshop-preview { grid-column: 3; grid-row: 1; border-top: 0; border-left: 1px solid var(--lumiverse-border, rgba(255,255,255,.1)); }
+.workshop-shell.preview-split:not(.preview-collapsed) .workshop-preview-status { display: none; }
+.workshop-shell.preview-collapsed .workshop-center { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 0 38px; }
+.workshop-shell.preview-collapsed .workshop-editor-region { grid-column: 1; grid-row: 1; }
+.workshop-shell.preview-collapsed .workshop-preview-resizer { display: none; }
+.workshop-shell.preview-collapsed .workshop-preview { grid-column: 1; grid-row: 3; border-left: 0; border-top: 1px solid var(--lumiverse-border, rgba(255,255,255,.1)); }
+.workshop-preview-toolbar { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 9px; border-bottom: 1px solid var(--lumiverse-border, rgba(255,255,255,.08)); }
 .workshop-preview-label { font-size: 11px; font-weight: 750; letter-spacing: .08em; color: var(--lumiverse-text-muted); }
 .workshop-preview-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--lumiverse-text-dim); }
 .workshop-preview-toolbar .spacer { flex: 1; }
-.workshop-segment {
-  display: inline-flex;
-  padding: 2px;
-  border: 1px solid var(--lumiverse-border-neutral, var(--lumiverse-border));
-  border-radius: 7px;
-  background: var(--lumiverse-bg-deep, #101014);
-}
-.workshop-segment button {
-  border: 0;
-  border-radius: 5px;
-  padding: 4px 8px;
-  background: transparent;
-  color: var(--lumiverse-text-muted);
-  cursor: pointer;
-  font-size: 10px;
-}
-.workshop-segment button.active {
-  color: var(--lumiverse-primary-text, var(--lumiverse-text));
-  background: var(--lumiverse-primary-015, rgba(255,255,255,.09));
-}
-.workshop-preview-content {
-  overflow: auto;
-  padding: 12px;
-}
+.workshop-segment { display: inline-flex; padding: 2px; border: 1px solid var(--lumiverse-border-neutral, var(--lumiverse-border)); border-radius: 7px; background: var(--lumiverse-bg-deep, #101014); }
+.workshop-segment button { border: 0; border-radius: 5px; padding: 4px 8px; background: transparent; color: var(--lumiverse-text-muted); cursor: pointer; font-size: 10px; }
+.workshop-segment button.active { color: var(--lumiverse-primary-text, var(--lumiverse-text)); background: var(--lumiverse-primary-015, rgba(255,255,255,.09)); }
+.workshop-preview-content { overflow: auto; padding: 12px; }
 .preview-collapsed .workshop-preview-content { display: none; }
-.workshop-preview-state {
-  height: 100%;
-  min-height: 92px;
-  display: grid;
-  place-items: center;
-  text-align: center;
-  color: var(--lumiverse-text-muted);
-  font-size: 12px;
-  padding: 18px;
-}
+.workshop-preview-state { height: 100%; min-height: 92px; display: grid; place-items: center; text-align: center; color: var(--lumiverse-text-muted); font-size: 12px; padding: 18px; }
 .workshop-message,
-.workshop-breakdown-row {
-  border: 1px solid var(--lumiverse-border, rgba(255,255,255,.09));
-  border-radius: 9px;
-  background: var(--lumiverse-bg-deep, #101014);
-  margin-bottom: 9px;
-  overflow: hidden;
-}
+.workshop-breakdown-row { border: 1px solid var(--lumiverse-border, rgba(255,255,255,.09)); border-radius: 9px; background: var(--lumiverse-bg-deep, #101014); margin-bottom: 9px; overflow: hidden; }
 .workshop-message-head,
-.workshop-breakdown-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 9px;
-  border-bottom: 1px solid var(--lumiverse-border, rgba(255,255,255,.07));
-  color: var(--lumiverse-text-muted);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: .05em;
-}
+.workshop-breakdown-head { display: flex; align-items: center; gap: 7px; padding: 7px 9px; border-bottom: 1px solid var(--lumiverse-border, rgba(255,255,255,.07)); color: var(--lumiverse-text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
 .workshop-message pre,
-.workshop-breakdown-row pre {
-  margin: 0;
-  padding: 10px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--lumiverse-text);
-  font: 11px/1.55 var(--lumiverse-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-}
+.workshop-breakdown-row pre { margin: 0; padding: 10px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--lumiverse-text); font: 11px/1.55 var(--lumiverse-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
 .workshop-breakdown-row { width: 100%; text-align: left; color: inherit; cursor: default; }
 .workshop-breakdown-row.has-block { cursor: pointer; }
 .workshop-breakdown-row.has-block:hover { border-color: var(--lumiverse-primary, currentColor); }
 
-.workshop-rail-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 11px 11px 9px;
-}
-.workshop-rail-title {
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: .08em;
-  color: var(--lumiverse-text-muted);
-}
-.workshop-count { margin-left: auto; font-size: 10px; color: var(--lumiverse-text-dim); }
 .workshop-search-wrap { padding: 0 10px 10px; }
-.workshop-search {
-  width: 100%;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--lumiverse-border-neutral, var(--lumiverse-border));
-  border-radius: 8px;
-  outline: none;
-  background: var(--lumiverse-input-bg, var(--lumiverse-bg-deep));
-  color: var(--lumiverse-text);
-  font: inherit;
-  font-size: 11px;
-}
+.workshop-search { width: 100%; height: 32px; padding: 0 10px; border: 1px solid var(--lumiverse-border-neutral, var(--lumiverse-border)); border-radius: 8px; outline: none; background: var(--lumiverse-input-bg, var(--lumiverse-bg-deep)); color: var(--lumiverse-text); font: inherit; font-size: 11px; }
 .workshop-search:focus { border-color: var(--lumiverse-primary, currentColor); }
 .workshop-scroll { min-height: 0; overflow: auto; padding: 2px 7px 14px; }
-.workshop-row {
-  width: 100%;
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  padding: 7px 8px;
-  margin: 1px 0;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--lumiverse-text);
-  text-align: left;
-  cursor: pointer;
-}
+.workshop-row-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px; align-items: center; }
+.workshop-row { width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 7px 8px; margin: 1px 0; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--lumiverse-text); text-align: left; cursor: pointer; }
 .workshop-row:hover { background: var(--lumiverse-fill-subtle, rgba(255,255,255,.04)); }
 .workshop-row.selected { border-color: var(--lumiverse-primary-050, var(--lumiverse-primary)); background: var(--lumiverse-primary-010, rgba(255,255,255,.05)); }
+.workshop-row.secondary-selected { border-color: var(--lumiverse-warning, #e8b04c); background: var(--lumiverse-warning-015, rgba(255,180,0,.05)); }
 .workshop-row.variable-owner { box-shadow: inset 2px 0 var(--lumiverse-primary, currentColor); }
 .workshop-row.variable-reference:not(.variable-owner) { box-shadow: inset 2px 0 var(--lumiverse-warning, #e8b04c); }
-.workshop-row.category {
-  margin-top: 8px;
-  color: var(--lumiverse-text-muted);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-}
+.workshop-row.category { margin-top: 8px; color: var(--lumiverse-text-muted); font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .workshop-row.child { padding-left: 17px; }
 .workshop-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workshop-row-meta { display: flex; gap: 4px; }
-.workshop-pill {
-  min-width: 20px;
-  padding: 1px 5px;
-  border: 1px solid var(--lumiverse-border-neutral, var(--lumiverse-border));
-  border-radius: 999px;
-  color: var(--lumiverse-text-dim);
-  font-size: 9px;
-  text-align: center;
-}
+.workshop-row-meta { display: flex; gap: 4px; align-items: center; }
+.workshop-pill { min-width: 20px; padding: 1px 5px; border: 1px solid var(--lumiverse-border-neutral, var(--lumiverse-border)); border-radius: 999px; color: var(--lumiverse-text-dim); font-size: 9px; text-align: center; }
 .workshop-pill.define { color: var(--lumiverse-primary-text, var(--lumiverse-text)); }
+.workshop-row-actions { display: inline-flex; gap: 3px; }
+.workshop-category-chevron { width: 13px; height: 13px; flex: 0 0 auto; transition: transform 120ms ease; }
+.workshop-category-chevron.collapsed { transform: rotate(-90deg); }
 .workshop-rail-note { padding: 8px 10px; font-size: 10px; color: var(--lumiverse-text-dim); border-top: 1px solid var(--lumiverse-border); }
 
-.workshop-variable-card {
-  width: 100%;
-  display: block;
-  padding: 8px 9px;
-  margin: 3px 0;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
+.workshop-variable-card { width: 100%; display: block; padding: 8px 9px; margin: 3px 0; border: 1px solid transparent; border-radius: 8px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .workshop-variable-card:hover { background: var(--lumiverse-fill-subtle, rgba(255,255,255,.04)); }
 .workshop-variable-card.selected { border-color: var(--lumiverse-primary-050, var(--lumiverse-primary)); background: var(--lumiverse-primary-010, rgba(255,255,255,.05)); }
 .workshop-variable-label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 650; }
 .workshop-variable-macro { display: block; margin-top: 3px; color: var(--lumiverse-text-dim); font: 9px var(--lumiverse-font-mono, ui-monospace, monospace); overflow: hidden; text-overflow: ellipsis; }
 .workshop-variable-owner { display: block; margin-top: 4px; color: var(--lumiverse-text-muted); font-size: 9px; }
-.workshop-section-label {
-  margin: 13px 8px 5px;
-  color: var(--lumiverse-text-dim);
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-}
-.workshop-variable-detail {
-  margin: 3px 2px 10px;
-  padding: 10px;
-  border: 1px solid var(--lumiverse-border, rgba(255,255,255,.09));
-  border-radius: 10px;
-  background: var(--lumiverse-bg-deep, #101014);
-}
+.workshop-section-label { margin: 13px 8px 5px; color: var(--lumiverse-text-dim); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.workshop-variable-detail { margin: 3px 2px 10px; padding: 10px; border: 1px solid var(--lumiverse-border, rgba(255,255,255,.09)); border-radius: 10px; background: var(--lumiverse-bg-deep, #101014); }
 .workshop-detail-heading { font-size: 12px; font-weight: 750; margin-bottom: 4px; }
 .workshop-detail-macro-row { display: flex; gap: 5px; align-items: center; }
-.workshop-code {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--lumiverse-primary-text, var(--lumiverse-text));
-  font: 10px var(--lumiverse-font-mono, ui-monospace, monospace);
-}
+.workshop-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--lumiverse-primary-text, var(--lumiverse-text)); font: 10px var(--lumiverse-font-mono, ui-monospace, monospace); }
 .workshop-copy { margin-left: auto; padding: 3px 6px; border: 1px solid var(--lumiverse-border); border-radius: 6px; background: transparent; color: var(--lumiverse-text-muted); cursor: pointer; font-size: 9px; }
 .workshop-detail-grid { display: grid; grid-template-columns: 76px minmax(0,1fr); gap: 5px 8px; margin-top: 10px; font-size: 10px; }
 .workshop-detail-key { color: var(--lumiverse-text-dim); }
-.workshop-detail-value { min-width: 0; overflow-wrap: anywhere; color: var(--lumiverse-text); }
+.workshop-detail-value { min-width: 0; overflow-wrap: anywhere; color: var(--lumiverse-text); white-space: pre-line; }
 .workshop-description { margin-top: 9px; color: var(--lumiverse-text-muted); font-size: 10px; line-height: 1.45; }
-.workshop-link-button {
-  display: block;
-  width: 100%;
-  margin-top: 4px;
-  padding: 5px 7px;
-  border: 1px solid var(--lumiverse-border, rgba(255,255,255,.08));
-  border-radius: 6px;
-  background: transparent;
-  color: var(--lumiverse-text);
-  text-align: left;
-  cursor: pointer;
-  font-size: 9px;
-}
-.workshop-diagnostics {
-  margin: 8px 2px 0;
-  padding-top: 8px;
-  border-top: 1px solid var(--lumiverse-border, rgba(255,255,255,.08));
-}
-.workshop-diagnostic-row {
-  width: 100%;
-  padding: 6px 7px;
-  margin: 3px 0;
-  border: 1px solid var(--lumiverse-warning-020, var(--lumiverse-border));
-  border-radius: 7px;
-  background: var(--lumiverse-warning-015, rgba(255,180,0,.06));
-  color: var(--lumiverse-text);
-  text-align: left;
-  font-size: 9px;
-}
-.workshop-diagnostic-row button { font: inherit; }
+.workshop-link-button { display: block; width: 100%; margin-top: 4px; padding: 5px 7px; border: 1px solid var(--lumiverse-border, rgba(255,255,255,.08)); border-radius: 6px; background: transparent; color: var(--lumiverse-text); text-align: left; cursor: pointer; font-size: 9px; }
+.workshop-diagnostics { margin: 8px 2px 0; padding-top: 8px; border-top: 1px solid var(--lumiverse-border, rgba(255,255,255,.08)); }
+.workshop-diagnostic-row { width: 100%; padding: 6px 7px; margin: 3px 0; border: 1px solid var(--lumiverse-warning-020, var(--lumiverse-border)); border-radius: 7px; background: var(--lumiverse-warning-015, rgba(255,180,0,.06)); color: var(--lumiverse-text); text-align: left; font-size: 9px; }
 .workshop-diagnostic-title { display: block; font-weight: 700; }
 .workshop-diagnostic-copy { display: block; margin-top: 2px; color: var(--lumiverse-text-muted); }
 .workshop-mobile-only { display: none; }
 
+@media (max-width: 1180px) {
+  .workshop-native-form.workshop-variable-sidecar { display: block !important; }
+  .workshop-native-form.workshop-variable-sidecar > .workshop-native-variable-root { position: static; }
+}
+
 @media (max-width: ${MOBILE_BREAKPOINT}px) {
   .workshop-mobile-only { display: inline-grid; }
-  .workshop-desktop-rail-toggle { display: none; }
   .workshop-header-status { display: none; }
-  .workshop-preset-name { max-width: 34vw; }
+  .workshop-preset-name { max-width: 48vw; }
   .workshop-body,
   .workshop-shell.left-collapsed .workshop-body,
-  .workshop-shell.right-collapsed .workshop-body {
-    display: block;
-    position: relative;
-  }
+  .workshop-shell.right-collapsed .workshop-body { display: block; position: relative; }
   .workshop-center,
-  .workshop-shell.preview-split:not(.preview-collapsed) .workshop-center {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1fr) minmax(165px, 32vh);
-  }
-  .workshop-shell.preview-collapsed .workshop-center {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 1fr) 38px;
-  }
+  .workshop-shell.preview-split:not(.preview-collapsed) .workshop-center { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) 5px minmax(165px, 30vh); }
+  .workshop-shell.preview-collapsed .workshop-center { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) 0 38px; }
+  .workshop-editor-region,
+  .workshop-shell.preview-split:not(.preview-collapsed) .workshop-editor-region { grid-column: 1; grid-row: 1; padding: 8px; }
+  .workshop-preview-resizer,
+  .workshop-shell.preview-split:not(.preview-collapsed) .workshop-preview-resizer { grid-column: 1; grid-row: 2; cursor: row-resize; }
   .workshop-preview,
-  .preview-split:not(.preview-collapsed) .workshop-preview { border-left: 0; border-top: 1px solid var(--lumiverse-border); }
-  .workshop-rail {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    z-index: 20;
-    width: min(86vw, 360px);
-    visibility: visible !important;
-    box-shadow: var(--lumiverse-shadow-lg, 0 12px 40px rgba(0,0,0,.35));
-    transition: transform 160ms ease;
-  }
+  .workshop-shell.preview-split:not(.preview-collapsed) .workshop-preview { grid-column: 1; grid-row: 3; border-left: 0; border-top: 1px solid var(--lumiverse-border); }
+  .workshop-editor-stage.dual { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+  .workshop-primary-textarea { min-height: 300px !important; }
+  .workshop-rail { position: absolute; top: 0; bottom: 0; z-index: 20; width: min(86vw, 360px) !important; visibility: visible !important; box-shadow: var(--lumiverse-shadow-lg, 0 12px 40px rgba(0,0,0,.35)); transition: transform 160ms ease; }
   .workshop-rail.left { left: 0; transform: translateX(-102%); }
   .workshop-rail.right { right: 0; transform: translateX(102%); }
   .workshop-shell.mobile-left-open .workshop-rail.left { transform: translateX(0); }
   .workshop-shell.mobile-right-open .workshop-rail.right { transform: translateX(0); }
   .workshop-resizer { display: none !important; }
-  .workshop-editor-region { padding: 12px; }
+  .left-collapsed .workshop-rail.left .workshop-rail-title,
+  .left-collapsed .workshop-rail.left .workshop-count,
+  .left-collapsed .workshop-rail.left .workshop-search-wrap,
+  .left-collapsed .workshop-rail.left .workshop-scroll,
+  .left-collapsed .workshop-rail.left .workshop-rail-note,
+  .right-collapsed .workshop-rail.right .workshop-rail-title,
+  .right-collapsed .workshop-rail.right .workshop-count,
+  .right-collapsed .workshop-rail.right .workshop-search-wrap,
+  .right-collapsed .workshop-rail.right .workshop-scroll,
+  .right-collapsed .workshop-rail.right .workshop-rail-note { display: initial; }
+  .workshop-rail-collapse { display: none; }
 }
 `
-
 const ICONS = {
   workshop: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16"/><path d="M6 20V8l6-4 6 4v12"/><path d="M9 20v-6h6v6"/><path d="M8 10h.01M16 10h.01"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>',
@@ -521,6 +339,9 @@ const ICONS = {
   refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66"/><path d="M20 4v7h-7"/></svg>',
   split: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M13 4v16"/></svg>',
   bottom: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 13h18"/></svg>',
+  pencil: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+  columns: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>',
+  chevronDown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>',
 }
 
 function button(className: string, label: string, html: string): HTMLButtonElement {
@@ -633,14 +454,16 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       </div>
       <div class="workshop-header-spacer"></div>
       <div class="workshop-header-status"><span class="workshop-dot"></span><span class="workshop-status-copy">Synced</span></div>
-      <button class="workshop-icon-button workshop-desktop-rail-toggle" type="button" data-action="left" aria-label="Toggle prompts">${ICONS.left}</button>
-      <button class="workshop-icon-button workshop-desktop-rail-toggle" type="button" data-action="right" aria-label="Toggle variables">${ICONS.right}</button>
       <button class="workshop-icon-button workshop-mobile-only" type="button" data-action="mobile-right" aria-label="Open variables">${ICONS.left}</button>
       <button class="workshop-icon-button" type="button" data-action="close" aria-label="Close Workshop">${ICONS.close}</button>
     </header>
     <div class="workshop-body">
       <aside class="workshop-rail left">
-        <div class="workshop-rail-header"><span class="workshop-rail-title">PROMPTS</span><span class="workshop-count" data-role="prompt-count"></span></div>
+        <div class="workshop-rail-header">
+          <span class="workshop-rail-title">PROMPTS</span>
+          <span class="workshop-count" data-role="prompt-count"></span>
+          <button class="workshop-mini-button workshop-rail-collapse" type="button" data-action="left" aria-label="Collapse prompts">${ICONS.left}</button>
+        </div>
         <div class="workshop-search-wrap"><input class="workshop-search" data-role="prompt-search" type="search" placeholder="Search prompts…" aria-label="Search prompts"></div>
         <div class="workshop-scroll" data-role="prompt-list"></div>
         <div class="workshop-rail-note" data-role="prompt-note"></div>
@@ -648,13 +471,19 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       <div class="workshop-resizer left" data-resize="left" aria-hidden="true"></div>
       <main class="workshop-center">
         <section class="workshop-editor-region">
-          <div class="workshop-editor-frame">
-            <div data-role="editor-mount"></div>
-            <div class="workshop-editor-empty" data-role="editor-empty">
-              <div class="workshop-empty-card"><strong>Select a prompt</strong><span>Choose a block from the prompt rail, or jump here from a variable dependency.</span></div>
+          <div class="workshop-editor-stage" data-role="editor-stage">
+            <div class="workshop-editor-slot primary" data-role="primary-editor-slot">
+              <div data-role="editor-mount"></div>
+              <div class="workshop-editor-empty" data-role="editor-empty">
+                <div class="workshop-empty-card"><strong>Select a prompt</strong><span>Choose a block from the prompt rail, or jump here from a variable dependency.</span></div>
+              </div>
+            </div>
+            <div class="workshop-editor-slot secondary" data-role="secondary-editor-slot" hidden>
+              <div data-role="secondary-editor-mount"></div>
             </div>
           </div>
         </section>
+        <div class="workshop-preview-resizer" data-resize="preview" aria-hidden="true"></div>
         <section class="workshop-preview">
           <div class="workshop-preview-toolbar">
             <span class="workshop-preview-label">PREVIEW</span>
@@ -673,7 +502,11 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       </main>
       <div class="workshop-resizer right" data-resize="right" aria-hidden="true"></div>
       <aside class="workshop-rail right">
-        <div class="workshop-rail-header"><span class="workshop-rail-title">VARIABLES</span><span class="workshop-count" data-role="variable-count"></span></div>
+        <div class="workshop-rail-header">
+          <button class="workshop-mini-button workshop-rail-collapse" type="button" data-action="right" aria-label="Collapse variables">${ICONS.right}</button>
+          <span class="workshop-rail-title">VARIABLES</span>
+          <span class="workshop-count" data-role="variable-count"></span>
+        </div>
         <div class="workshop-search-wrap"><input class="workshop-search" data-role="variable-search" type="search" placeholder="Search variables…" aria-label="Search variables"></div>
         <div class="workshop-scroll" data-role="variable-list"></div>
       </aside>
@@ -690,17 +523,26 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   const variableCount = root.querySelector<HTMLElement>('[data-role="variable-count"]')!
   const variableSearch = root.querySelector<HTMLInputElement>('[data-role="variable-search"]')!
   const variableList = root.querySelector<HTMLElement>('[data-role="variable-list"]')!
+  const editorStage = root.querySelector<HTMLElement>('[data-role="editor-stage"]')!
+  const primarySlot = root.querySelector<HTMLElement>('[data-role="primary-editor-slot"]')!
+  const secondarySlot = root.querySelector<HTMLElement>('[data-role="secondary-editor-slot"]')!
   const editorMount = root.querySelector<HTMLElement>('[data-role="editor-mount"]')!
+  const secondaryEditorMount = root.querySelector<HTMLElement>('[data-role="secondary-editor-mount"]')!
   const editorEmpty = root.querySelector<HTMLElement>('[data-role="editor-empty"]')!
   const previewStatus = root.querySelector<HTMLElement>('[data-role="preview-status"]')!
   const previewContent = root.querySelector<HTMLElement>('[data-role="preview-content"]')!
   const previewLayoutButton = root.querySelector<HTMLButtonElement>('[data-action="preview-layout"]')!
   const previewCollapseButton = root.querySelector<HTMLButtonElement>('[data-action="preview-collapse"]')!
+  const leftRailButton = root.querySelector<HTMLButtonElement>('[data-action="left"]')!
+  const rightRailButton = root.querySelector<HTMLButtonElement>('[data-action="right"]')!
+  const previewResizer = root.querySelector<HTMLElement>('[data-resize="preview"]')!
 
   let destroyed = false
   let canonicalValue = initialValue
-  let draftValue: SpindleLoomBlockEditorValue | null = null
+  let primaryDraftValue: SpindleLoomBlockEditorValue | null = null
+  let secondaryDraftValue: SpindleLoomBlockEditorValue | null = null
   let selectedBlockId: string | null = null
+  let secondaryBlockId: string | null = null
   let selectedVariableName: string | null = null
   let promptQuery = ''
   let variableQuery = ''
@@ -715,12 +557,21 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   let previewLoading = false
   let lastChatId = ctx.getActiveChat().chatId
   let latestPresetName = initialState.preset.name
-  let derivedValue = overlaySelectedDraft(canonicalValue, draftValue, selectedBlockId)
+  let derivedValue = overlaySelectedDrafts(canonicalValue, [
+    { selectedBlockId, value: primaryDraftValue },
+    { selectedBlockId: secondaryBlockId, value: secondaryDraftValue },
+  ])
   let derivedIndex = buildVariableIndex(derivedValue.blocks, derivedValue.promptVariableValues)
+  const collapsedCategories = new Set<string>()
   const cleanups: Array<() => void> = []
+  let editor!: SpindleLoomBlockEditorHandle
+  let secondaryEditor!: SpindleLoomBlockEditorHandle
 
   function recomputeDerived(): void {
-    derivedValue = overlaySelectedDraft(canonicalValue, draftValue, selectedBlockId)
+    derivedValue = overlaySelectedDrafts(canonicalValue, [
+      { selectedBlockId, value: primaryDraftValue },
+      { selectedBlockId: secondaryBlockId, value: secondaryDraftValue },
+    ])
     derivedIndex = buildVariableIndex(derivedValue.blocks, derivedValue.promptVariableValues)
   }
 
@@ -732,36 +583,87 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     return derivedIndex
   }
 
-  function setDraftStatus(): void {
-    const hasDraft = draftValue !== null
-    statusDot.classList.toggle('is-draft', hasDraft)
-    statusCopy.textContent = hasDraft ? 'Unsaved prompt draft' : 'Synced'
+  function blockById(blockId: string | null): PromptBlockDTO | null {
+    if (!blockId) return null
+    return effectiveValue().blocks.find((block) => block.id === blockId) ?? null
   }
 
-  function setSelectedBlock(blockId: string | null): void {
-    if (blockId !== null && !canonicalValue.blocks.some((block) => block.id === blockId)) return
-    selectedBlockId = blockId
-    if (!blockId) draftValue = null
-    recomputeDerived()
-    editor.update({ selectedBlockId: blockId })
-    renderEditorVisibility()
-    renderPrompts()
-    renderVariables()
-    setDraftStatus()
-    closeMobileRails()
+  function selectedBlock(): PromptBlockDTO | null {
+    return blockById(selectedBlockId)
+  }
+
+  function secondaryBlock(): PromptBlockDTO | null {
+    return blockById(secondaryBlockId)
+  }
+
+  function setDraftStatus(): void {
+    const draftCount = Number(primaryDraftValue !== null) + Number(secondaryDraftValue !== null)
+    statusDot.classList.toggle('is-draft', draftCount > 0)
+    statusCopy.textContent = draftCount === 0
+      ? 'Synced'
+      : draftCount === 1
+        ? '1 unsaved prompt draft'
+        : '2 unsaved prompt drafts'
   }
 
   function closeMobileRails(): void {
     root.classList.remove('mobile-left-open', 'mobile-right-open')
   }
 
-  function selectedBlock(): PromptBlockDTO | null {
-    return effectiveValue().blocks.find((block) => block.id === selectedBlockId) ?? null
+  function setSelectedBlock(blockId: string | null): void {
+    if (blockId !== null && !canonicalValue.blocks.some((block) => block.id === blockId)) return
+    if (blockId && blockId === secondaryBlockId) {
+      secondaryBlockId = null
+      secondaryDraftValue = null
+      secondaryEditor.update({ selectedBlockId: null })
+    }
+    selectedBlockId = blockId
+    if (!blockId) primaryDraftValue = null
+    recomputeDerived()
+    editor.update({ selectedBlockId: blockId })
+    renderEditorVisibility()
+    renderPrompts()
+    renderVariables()
+    setDraftStatus()
+    scheduleNativeDecoration()
+    closeMobileRails()
+  }
+
+  function setSecondaryBlock(blockId: string | null): void {
+    if (blockId !== null) {
+      const block = canonicalValue.blocks.find((entry) => entry.id === blockId)
+      if (!block || block.marker === 'category' || blockId === selectedBlockId) return
+    }
+    secondaryBlockId = blockId
+    if (!blockId) secondaryDraftValue = null
+    recomputeDerived()
+    secondaryEditor.update({ selectedBlockId: blockId })
+    renderEditorVisibility()
+    renderPrompts()
+    renderVariables()
+    setDraftStatus()
+    scheduleNativeDecoration()
+    closeMobileRails()
   }
 
   function renderEditorVisibility(): void {
+    const dual = Boolean(selectedBlockId && secondaryBlockId)
+    editorStage.classList.toggle('dual', dual)
+    primarySlot.classList.toggle('dual-slot', dual)
+    secondarySlot.hidden = !secondaryBlockId
     editorMount.style.display = selectedBlockId ? '' : 'none'
     editorEmpty.style.display = selectedBlockId ? 'none' : ''
+  }
+
+  function refreshRailButtons(): void {
+    const leftCollapsed = root.classList.contains('left-collapsed')
+    const rightCollapsed = root.classList.contains('right-collapsed')
+    leftRailButton.innerHTML = leftCollapsed ? ICONS.right : ICONS.left
+    leftRailButton.title = leftCollapsed ? 'Expand prompts' : 'Collapse prompts'
+    leftRailButton.setAttribute('aria-label', leftRailButton.title)
+    rightRailButton.innerHTML = rightCollapsed ? ICONS.left : ICONS.right
+    rightRailButton.title = rightCollapsed ? 'Expand variables' : 'Collapse variables'
+    rightRailButton.setAttribute('aria-label', rightRailButton.title)
   }
 
   function renderPrompts(): void {
@@ -773,28 +675,10 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     const refs = new Set(selectedVariable?.references.map((reference) => reference.blockId) ?? [])
     promptList.replaceChildren()
 
-    let parentCategory: string | null = null
     let visible = 0
-    for (const block of value.blocks) {
-      const isCategory = block.marker === 'category'
-      if (isCategory) parentCategory = block.id
-      const matches = !query || promptBlockSearchText(block).includes(query)
-      if (!matches) continue
-      visible += 1
+    const blockMatches = (block: PromptBlockDTO) => !query || promptBlockSearchText(block).includes(query)
 
-      const row = document.createElement('button')
-      row.type = 'button'
-      row.className = `workshop-row${isCategory ? ' category' : parentCategory ? ' child' : ''}`
-      if (block.id === selectedBlockId) row.classList.add('selected')
-      if (owners.has(block.id)) row.classList.add('variable-owner')
-      if (refs.has(block.id)) row.classList.add('variable-reference')
-      row.dataset.blockId = block.id
-
-      const name = document.createElement('span')
-      name.className = 'workshop-row-name'
-      name.textContent = block.name || '(Untitled block)'
-      row.append(name)
-
+    const makeMeta = (block: PromptBlockDTO): HTMLElement => {
       const stats = blockVariableStats(block)
       const meta = document.createElement('span')
       meta.className = 'workshop-row-meta'
@@ -812,14 +696,92 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
         pill.title = `${stats.references} referenced variable${stats.references === 1 ? '' : 's'}`
         meta.append(pill)
       }
-      row.append(meta)
+      return meta
+    }
+
+    const appendPromptRow = (block: PromptBlockDTO, child: boolean) => {
+      visible += 1
+      const wrap = document.createElement('div')
+      wrap.className = 'workshop-row-wrap'
+
+      const row = document.createElement('button')
+      row.type = 'button'
+      row.className = `workshop-row${child ? ' child' : ''}`
+      if (block.id === selectedBlockId) row.classList.add('selected')
+      if (block.id === secondaryBlockId) row.classList.add('secondary-selected')
+      if (owners.has(block.id)) row.classList.add('variable-owner')
+      if (refs.has(block.id)) row.classList.add('variable-reference')
+      row.dataset.blockId = block.id
+
+      const name = document.createElement('span')
+      name.className = 'workshop-row-name'
+      name.textContent = block.name || '(Untitled block)'
+      row.append(name, makeMeta(block))
       row.addEventListener('click', () => setSelectedBlock(block.id))
-      promptList.append(row)
+      wrap.append(row)
+
+      if (selectedBlockId && block.id !== selectedBlockId) {
+        const split = button(
+          'workshop-mini-button',
+          block.id === secondaryBlockId ? 'Close second prompt' : `Open ${block.name || 'prompt'} beside current prompt`,
+          block.id === secondaryBlockId ? ICONS.close : ICONS.columns,
+        )
+        split.addEventListener('click', () => setSecondaryBlock(block.id === secondaryBlockId ? null : block.id))
+        wrap.append(split)
+      }
+      promptList.append(wrap)
+    }
+
+    for (const group of computePromptGroups(value.blocks)) {
+      const category = group.categoryBlock
+      const matchingChildren = query ? group.children.filter(blockMatches) : group.children
+      const categoryMatches = category ? blockMatches(category) : false
+      if (query && !categoryMatches && matchingChildren.length === 0) continue
+
+      if (category) {
+        visible += 1
+        const wrap = document.createElement('div')
+        wrap.className = 'workshop-row-wrap'
+        const collapsed = collapsedCategories.has(category.id) && !query
+
+        const row = document.createElement('button')
+        row.type = 'button'
+        row.className = 'workshop-row category'
+        if (category.id === selectedBlockId) row.classList.add('selected')
+        if (owners.has(category.id)) row.classList.add('variable-owner')
+        if (refs.has(category.id)) row.classList.add('variable-reference')
+
+        const name = document.createElement('span')
+        name.className = 'workshop-row-name'
+        const chevron = document.createElement('span')
+        chevron.className = `workshop-category-chevron${collapsed ? ' collapsed' : ''}`
+        chevron.innerHTML = ICONS.chevronDown
+        name.append(chevron, document.createTextNode(category.name || '(Untitled category)'))
+        row.append(name, makeMeta(category))
+        row.addEventListener('click', () => {
+          if (collapsedCategories.has(category.id)) collapsedCategories.delete(category.id)
+          else collapsedCategories.add(category.id)
+          renderPrompts()
+        })
+        wrap.append(row)
+
+        const edit = button('workshop-mini-button', `Edit category ${category.name || ''}`.trim(), ICONS.pencil)
+        edit.addEventListener('click', () => setSelectedBlock(category.id))
+        wrap.append(edit)
+        promptList.append(wrap)
+
+        if (!collapsed) {
+          for (const child of (query ? matchingChildren : group.children)) appendPromptRow(child, true)
+        }
+        continue
+      }
+
+      for (const child of (query ? matchingChildren : group.children)) appendPromptRow(child, false)
     }
 
     promptCount.textContent = `${visible}/${value.blocks.length}`
     promptNote.textContent = selectedVariable
-      ? `Variable map: owner blocks use the primary marker; reference blocks use the warning marker.`
+      ? 'Variable map: owner blocks use the primary marker; reference blocks use the warning marker.'
       : `${index.definitionCount} definitions · ${index.referenceCount} references`
   }
 
@@ -1179,6 +1141,101 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     previewTimer = setTimeout(run, immediate ? 0 : PREVIEW_DEBOUNCE_MS)
   }
 
+  function decorateNativeMount(mount: HTMLElement, sidecar: boolean): void {
+    const layout = mount.firstElementChild
+    if (!(layout instanceof HTMLElement)) return
+    layout.classList.add('workshop-native-layout')
+
+    const textarea = mount.querySelector('textarea')
+    if (textarea instanceof HTMLTextAreaElement) textarea.classList.add('workshop-primary-textarea')
+
+    let scroll: HTMLElement | null = null
+    if (textarea) {
+      let cursor = textarea.parentElement
+      while (cursor && cursor !== layout) {
+        if (cursor.parentElement === layout) {
+          scroll = cursor
+          break
+        }
+        cursor = cursor.parentElement
+      }
+    }
+    if (!scroll) {
+      const children = [...layout.children].filter((child): child is HTMLElement => child instanceof HTMLElement)
+      scroll = children.find((child) => child.querySelector('textarea')) ?? null
+    }
+    if (!scroll) return
+    scroll.classList.add('workshop-native-scroll')
+
+    const form = scroll.firstElementChild
+    if (!(form instanceof HTMLElement)) return
+    form.classList.add('workshop-native-form')
+    form.classList.remove('workshop-variable-sidecar')
+    for (const child of [...form.children]) {
+      if (!(child instanceof HTMLElement)) continue
+      child.classList.remove('workshop-native-main-field', 'workshop-native-variable-root')
+    }
+
+    if (!sidecar) return
+    const variableRoot = form.lastElementChild
+    if (!(variableRoot instanceof HTMLElement)) return
+    form.classList.add('workshop-variable-sidecar')
+    for (const child of [...form.children]) {
+      if (!(child instanceof HTMLElement)) continue
+      child.classList.add(child === variableRoot ? 'workshop-native-variable-root' : 'workshop-native-main-field')
+    }
+  }
+
+  let decorationFrame: number | null = null
+  function scheduleNativeDecoration(): void {
+    if (destroyed || decorationFrame !== null) return
+    decorationFrame = requestAnimationFrame(() => {
+      decorationFrame = null
+      const primary = selectedBlock()
+      const useSidecar = Boolean(
+        primary
+        && !secondaryBlockId
+        && primarySlot.clientWidth >= 980
+        && (primary.variables?.length ?? 0) > 0,
+      )
+      decorateNativeMount(editorMount, useSidecar)
+      decorateNativeMount(secondaryEditorMount, false)
+    })
+  }
+
+  const primaryObserver = new MutationObserver(scheduleNativeDecoration)
+  const secondaryObserver = new MutationObserver(scheduleNativeDecoration)
+  primaryObserver.observe(editorMount, { childList: true, subtree: true })
+  secondaryObserver.observe(secondaryEditorMount, { childList: true, subtree: true })
+  cleanups.push(() => primaryObserver.disconnect(), () => secondaryObserver.disconnect())
+  const onViewportResize = () => scheduleNativeDecoration()
+  window.addEventListener('resize', onViewportResize)
+  cleanups.push(() => window.removeEventListener('resize', onViewportResize))
+
+  function reportWriteFailure(targetId: string, failure: string | null): void {
+    if (!failure) return
+    console.error(`[Workshop] Refused ambiguous Loom block write for ${targetId}: ${failure}`)
+    previewError = `Workshop refused an ambiguous write (${failure}). Reopen the preset before editing further.`
+    renderPreview()
+  }
+
+  function commitEditorValue(targetId: string | null, value: SpindleLoomBlockEditorValue, lane: 'primary' | 'secondary'): void {
+    if (!targetId) {
+      console.warn(`[Workshop] Ignored ${lane} native Loom commit without a selected block.`)
+      return
+    }
+    let failure: string | null = null
+    ctx.ui.presetEditor.updatePreset((latest: SpindlePresetEditorDraft) => {
+      const patched = replaceUniqueBlock(latest.blocks, value.blocks, targetId)
+      if (!patched.ok) {
+        failure = patched.reason ?? 'unknown'
+        return latest
+      }
+      return { ...latest, blocks: patched.blocks }
+    })
+    reportWriteFailure(targetId, failure)
+  }
+
   function syncCanonicalFromHost(): boolean {
     const state = ctx.ui.presetEditor.getState()
     if (!state.open || !state.preset || state.presetId !== sessionPresetId) return false
@@ -1187,64 +1244,104 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     canonicalValue = next
     latestPresetName = state.preset.name
     presetName.textContent = latestPresetName
+
     if (selectedBlockId && !canonicalValue.blocks.some((block) => block.id === selectedBlockId)) {
       selectedBlockId = null
-      draftValue = null
+      primaryDraftValue = null
     }
+    if (secondaryBlockId && !canonicalValue.blocks.some((block) => block.id === secondaryBlockId)) {
+      secondaryBlockId = null
+      secondaryDraftValue = null
+    }
+    if (secondaryBlockId && secondaryBlockId === selectedBlockId) {
+      secondaryBlockId = null
+      secondaryDraftValue = null
+    }
+
     recomputeDerived()
     editor.update({ value: canonicalValue, selectedBlockId })
+    secondaryEditor.update({ value: canonicalValue, selectedBlockId: secondaryBlockId })
     renderEditorVisibility()
     renderPrompts()
     renderVariables()
     setDraftStatus()
+    scheduleNativeDecoration()
     schedulePreview()
     return true
   }
 
-  const editor: SpindleLoomBlockEditorHandle = ctx.components.mountLoomBlockEditor(editorMount, {
+  editor = ctx.components.mountLoomBlockEditor(editorMount, {
     value: canonicalValue,
     selectedBlockId: null,
     onSelectedBlockChange: (blockId) => {
       if (destroyed) return
+      if (blockId && blockId === secondaryBlockId) {
+        secondaryBlockId = null
+        secondaryDraftValue = null
+        secondaryEditor.update({ selectedBlockId: null })
+      }
       selectedBlockId = blockId
-      if (!blockId) draftValue = null
+      if (!blockId) primaryDraftValue = null
       recomputeDerived()
       renderEditorVisibility()
       renderPrompts()
       renderVariables()
       setDraftStatus()
+      scheduleNativeDecoration()
       schedulePreview()
     },
     onDraftChange: (value) => {
       if (destroyed) return
-      draftValue = value
+      primaryDraftValue = value
       recomputeDerived()
       setDraftStatus()
       renderPrompts()
       renderVariables()
+      scheduleNativeDecoration()
       schedulePreview()
     },
     onChange: (value) => {
       if (destroyed) return
-      const targetId = selectedBlockId
-      if (!targetId) {
-        console.warn('[Workshop] Ignored native Loom commit without a selected block.')
-        return
+      commitEditorValue(selectedBlockId, value, 'primary')
+    },
+    compact: false,
+    readOnly: false,
+  } as Parameters<SpindleFrontendContext['components']['mountLoomBlockEditor']>[1])
+
+  secondaryEditor = ctx.components.mountLoomBlockEditor(secondaryEditorMount, {
+    value: canonicalValue,
+    selectedBlockId: null,
+    onSelectedBlockChange: (blockId) => {
+      if (destroyed) return
+      if (blockId === selectedBlockId) {
+        secondaryBlockId = null
+        secondaryDraftValue = null
+        secondaryEditor.update({ selectedBlockId: null })
+      } else {
+        secondaryBlockId = blockId
+        if (!blockId) secondaryDraftValue = null
       }
-      let failure: string | null = null
-      ctx.ui.presetEditor.updatePreset((latest: SpindlePresetEditorDraft) => {
-        const patched = replaceUniqueBlock(latest.blocks, value.blocks, targetId)
-        if (!patched.ok) {
-          failure = patched.reason ?? 'unknown'
-          return latest
-        }
-        return { ...latest, blocks: patched.blocks }
-      })
-      if (failure) {
-        console.error(`[Workshop] Refused ambiguous Loom block write for ${targetId}: ${failure}`)
-        previewError = `Workshop refused an ambiguous write (${failure}). Reopen the preset before editing further.`
-        renderPreview()
-      }
+      recomputeDerived()
+      renderEditorVisibility()
+      renderPrompts()
+      renderVariables()
+      setDraftStatus()
+      scheduleNativeDecoration()
+      schedulePreview()
+    },
+    onDraftChange: (value) => {
+      if (destroyed) return
+      secondaryDraftValue = value
+      recomputeDerived()
+      setDraftStatus()
+      renderPrompts()
+      renderVariables()
+      scheduleNativeDecoration()
+      schedulePreview()
+    },
+    onChange: (value) => {
+      if (destroyed) return
+      commitEditorValue(secondaryBlockId, value, 'secondary')
     },
     compact: false,
     readOnly: false,
@@ -1267,11 +1364,15 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
 
   async function closeWorkshop(force = false): Promise<void> {
     if (destroyed) return
-    if (!force && draftValue) {
-      const block = selectedBlock()
+    const dirtyBlocks = [
+      primaryDraftValue ? selectedBlock() : null,
+      secondaryDraftValue ? secondaryBlock() : null,
+    ].filter((block): block is PromptBlockDTO => block !== null)
+    if (!force && dirtyBlocks.length > 0) {
+      const names = dirtyBlocks.map((block) => block.name || block.id).join(', ')
       const result = await ctx.ui.showConfirm({
-        title: 'Discard prompt draft?',
-        message: `${block?.name ?? 'This prompt'} has edits that have not been saved in the native Loom editor. Close Workshop and discard them?`,
+        title: dirtyBlocks.length > 1 ? 'Discard prompt drafts?' : 'Discard prompt draft?',
+        message: `${names} ${dirtyBlocks.length > 1 ? 'have' : 'has'} edits that have not been saved in the native Loom editor. Close Workshop and discard them?`,
         variant: 'warning',
         confirmLabel: 'Discard and close',
       })
@@ -1279,11 +1380,13 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     }
     destroyed = true
     if (previewTimer) clearTimeout(previewTimer)
+    if (decorationFrame !== null) cancelAnimationFrame(decorationFrame)
     if (activePreviewRequestId) {
       ctx.sendToBackend({ type: 'workshop:cancel-preview', requestId: activePreviewRequestId })
     }
     for (const cleanup of cleanups.splice(0)) cleanup()
     editor.destroy()
+    secondaryEditor.destroy()
     if (!force) {
       try { await ctx.ui.presetEditor.flush() } catch (error) { console.warn('[Workshop] Preset flush failed while closing:', error) }
     }
@@ -1365,8 +1468,16 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   })
 
   root.querySelector<HTMLButtonElement>('[data-action="close"]')!.addEventListener('click', () => { void closeWorkshop() })
-  root.querySelector<HTMLButtonElement>('[data-action="left"]')!.addEventListener('click', () => root.classList.toggle('left-collapsed'))
-  root.querySelector<HTMLButtonElement>('[data-action="right"]')!.addEventListener('click', () => root.classList.toggle('right-collapsed'))
+  leftRailButton.addEventListener('click', () => {
+    root.classList.toggle('left-collapsed')
+    refreshRailButtons()
+    scheduleNativeDecoration()
+  })
+  rightRailButton.addEventListener('click', () => {
+    root.classList.toggle('right-collapsed')
+    refreshRailButtons()
+    scheduleNativeDecoration()
+  })
   root.querySelector<HTMLButtonElement>('[data-action="mobile-left"]')!.addEventListener('click', () => {
     root.classList.toggle('mobile-left-open')
     root.classList.remove('mobile-right-open')
@@ -1382,6 +1493,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     previewLayoutButton.innerHTML = previewSplit ? ICONS.bottom : ICONS.split
     previewLayoutButton.title = previewSplit ? 'Move preview to the bottom' : 'Move preview to the side'
     previewLayoutButton.setAttribute('aria-label', previewLayoutButton.title)
+    scheduleNativeDecoration()
   })
   previewCollapseButton.addEventListener('click', () => {
     previewCollapsed = !previewCollapsed
@@ -1436,11 +1548,52 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   installResizer('left')
   installResizer('right')
 
+  const onPreviewPointerDown = (event: PointerEvent) => {
+    if (previewCollapsed) return
+    event.preventDefault()
+    previewResizer.setPointerCapture(event.pointerId)
+    previewResizer.classList.add('is-dragging')
+    const style = getComputedStyle(root)
+    const sideMode = previewSplit && window.innerWidth > MOBILE_BREAKPOINT
+    const start = sideMode
+      ? Number.parseFloat(style.getPropertyValue('--wk-preview-width')) || 430
+      : Number.parseFloat(style.getPropertyValue('--wk-preview-height')) || 300
+    const startPoint = sideMode ? event.clientX : event.clientY
+
+    const onMove = (move: PointerEvent) => {
+      if (sideMode) {
+        const delta = startPoint - move.clientX
+        const max = Math.min(PREVIEW_WIDTH_MAX, Math.max(PREVIEW_WIDTH_MIN, root.clientWidth - 360))
+        const size = Math.max(PREVIEW_WIDTH_MIN, Math.min(max, start + delta))
+        root.style.setProperty('--wk-preview-width', `${Math.round(size)}px`)
+      } else {
+        const delta = startPoint - move.clientY
+        const max = Math.max(PREVIEW_HEIGHT_MIN, root.clientHeight - 210)
+        const size = Math.max(PREVIEW_HEIGHT_MIN, Math.min(max, start + delta))
+        root.style.setProperty('--wk-preview-height', `${Math.round(size)}px`)
+      }
+      scheduleNativeDecoration()
+    }
+    const onUp = () => {
+      previewResizer.classList.remove('is-dragging')
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
+  }
+  previewResizer.addEventListener('pointerdown', onPreviewPointerDown)
+  cleanups.push(() => previewResizer.removeEventListener('pointerdown', onPreviewPointerDown))
+
   presetName.textContent = latestPresetName
   renderEditorVisibility()
   renderPrompts()
   renderVariables()
   setDraftStatus()
+  refreshRailButtons()
+  scheduleNativeDecoration()
   schedulePreview(true)
 
   return {
@@ -1461,33 +1614,30 @@ export function setup(ctx: SpindleFrontendContext): () => void {
   toolbar.root.style.display = 'block'
   toolbar.root.style.width = '100%'
   toolbar.root.append(launcher)
+  toolbar.setVisible(true)
 
-  let toolbarHost: HTMLElement | null = null
-  let toolbarHostObserver: MutationObserver | null = null
-  const fitToolbarHost = (): boolean => {
+  const styledToolbarHosts = new Map<HTMLElement, { flex: string; width: string; alignSelf: string }>()
+  const fitToolbarHost = () => {
     const host = toolbar.root.parentElement
-    if (!(host instanceof HTMLElement)) return false
-    toolbarHost = host
+    if (!(host instanceof HTMLElement)) return
+    if (!styledToolbarHosts.has(host)) {
+      styledToolbarHosts.set(host, {
+        flex: host.style.flex,
+        width: host.style.width,
+        alignSelf: host.style.alignSelf,
+      })
+    }
     host.style.flex = '1 1 100%'
     host.style.width = '100%'
-    return true
+    host.style.alignSelf = 'stretch'
+    toolbar.root.style.width = '100%'
   }
-  if (!fitToolbarHost()) {
-    toolbarHostObserver = new MutationObserver(() => {
-      if (!fitToolbarHost()) return
-      toolbarHostObserver?.disconnect()
-      toolbarHostObserver = null
-    })
-    toolbarHostObserver.observe(document.body, { childList: true, subtree: true })
-  }
+  fitToolbarHost()
+  const toolbarHostObserver = new MutationObserver(fitToolbarHost)
+  toolbarHostObserver.observe(document.body, { childList: true, subtree: true })
 
   let session: WorkshopSession | null = null
   let opening = false
-
-  const updateVisibility = () => {
-    const state = ctx.ui.presetEditor.getState()
-    toolbar.setVisible(state.open && !!state.presetId && !!state.preset)
-  }
 
   const open = () => {
     if (opening) return
@@ -1505,22 +1655,21 @@ export function setup(ctx: SpindleFrontendContext): () => void {
   }
   launcher.addEventListener('click', open)
 
-  const unsubscribe = ctx.ui.presetEditor.onChange(() => {
-    updateVisibility()
-    const state = ctx.ui.presetEditor.getState()
-    if (session && (!state.open || !state.presetId)) {
+  const unsubscribe = ctx.ui.presetEditor.onChange((state) => {
+    fitToolbarHost()
+    if (session && (!state.open || !state.presetId || !state.preset)) {
       void session.destroy(true).finally(() => { session = null })
     }
   })
-  updateVisibility()
 
   return () => {
     launcher.removeEventListener('click', open)
     unsubscribe()
-    toolbarHostObserver?.disconnect()
-    if (toolbarHost) {
-      toolbarHost.style.removeProperty('flex')
-      toolbarHost.style.removeProperty('width')
+    toolbarHostObserver.disconnect()
+    for (const [host, previous] of styledToolbarHosts) {
+      host.style.flex = previous.flex
+      host.style.width = previous.width
+      host.style.alignSelf = previous.alignSelf
     }
     toolbar.destroy()
     removeStyle()

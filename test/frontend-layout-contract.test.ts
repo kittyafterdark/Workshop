@@ -10,25 +10,59 @@ describe('Workshop frontend layout contract', () => {
     expect(source).not.toContain("tooltip: 'Workshop'")
   })
 
-  test('bounds the native Loom editor so its own scroll area can scroll', () => {
-    expect(source).toContain('.workshop-editor-frame > [data-role="editor-mount"]')
-    expect(source).toContain('height: 100%;\n  min-height: 0;')
-    expect(source).toContain('.workshop-editor-region {\n  min-width: 0;\n  min-height: 0;\n  overflow: hidden;')
-  })
-
-  test('collapsing a side preview returns it to the bottom-bar layout', () => {
-    expect(source).toContain('.workshop-shell.preview-split:not(.preview-collapsed) .workshop-center')
-    expect(source).toContain('.workshop-shell.preview-collapsed .workshop-center {\n  grid-template-columns: minmax(0, 1fr);')
-    expect(source).toContain('.preview-collapsed .workshop-preview { border-left: 0; border-top: 1px solid')
-  })
-
-  test('stretches the Workshop launcher across its dedicated preset toolbar host', () => {
+  test('keeps the launcher visible and stretches each Loom toolbar host', () => {
+    expect(source).toContain('toolbar.setVisible(true)')
     expect(source).toContain("toolbar.root.style.width = '100%'")
     expect(source).toContain("host.style.flex = '1 1 100%'")
     expect(source).toContain("host.style.width = '100%'")
+    expect(source).toContain('new MutationObserver(fitToolbarHost)')
   })
 
-  test('does not keep assembling a hidden preview', () => {
+  test('gives each rail ownership of its own collapse control', () => {
+    expect(source).toContain('data-action="left" aria-label="Collapse prompts"')
+    expect(source).toContain('data-action="right" aria-label="Collapse variables"')
+    expect(source).toContain("root.classList.toggle('left-collapsed')")
+    expect(source).toContain("root.classList.toggle('right-collapsed')")
+  })
+
+  test('bounds and enlarges the native Loom editor without stealing its scroll area', () => {
+    expect(source).toContain('.workshop-editor-region { grid-column: 1; grid-row: 1; min-width: 0; min-height: 0; overflow: hidden;')
+    expect(source).toContain('.workshop-primary-textarea')
+    expect(source).toContain('min-height: clamp(360px, 48vh, 720px)')
+    expect(source).toContain('width: min(100%, 1500px)')
+  })
+
+  test('supports dual native Loom editors and restores variables beneath in dual mode', () => {
+    expect(source).toContain('data-role="secondary-editor-mount"')
+    expect(source).toContain("ctx.components.mountLoomBlockEditor(secondaryEditorMount")
+    expect(source).toContain("setSecondaryBlock(block.id === secondaryBlockId ? null : block.id)")
+    expect(source).toContain('&& !secondaryBlockId')
+    expect(source).toContain('decorateNativeMount(secondaryEditorMount, false)')
+  })
+
+  test('uses the native variable editor as a single-prompt sidecar without reparenting it', () => {
+    expect(source).toContain("form.classList.add('workshop-variable-sidecar')")
+    expect(source).toContain("child.classList.add(child === variableRoot ? 'workshop-native-variable-root' : 'workshop-native-main-field')")
+    expect(source).not.toContain('appendChild(variableRoot)')
+    expect(source).not.toContain('append(variableRoot)')
+  })
+
+  test('renders real Loom categories and reserves edit actions for category headers', () => {
+    expect(source).toContain('for (const group of computePromptGroups(value.blocks))')
+    expect(source).toContain('collapsedCategories.has(category.id)')
+    expect(source).toContain("const edit = button('workshop-mini-button', `Edit category ${category.name || ''}`.trim(), ICONS.pencil)")
+  })
+
+  test('makes dry-run preview size draggable in bottom and side layouts', () => {
+    expect(source).toContain('data-resize="preview"')
+    expect(source).toContain("root.style.setProperty('--wk-preview-width'")
+    expect(source).toContain("root.style.setProperty('--wk-preview-height'")
+    expect(source).toContain('previewSplit && window.innerWidth > MOBILE_BREAKPOINT')
+  })
+
+  test('collapsing a side preview returns it to the bottom toolbar and stops assembly work', () => {
+    expect(source).toContain('.workshop-shell.preview-split:not(.preview-collapsed) .workshop-center')
+    expect(source).toContain('.workshop-shell.preview-collapsed .workshop-center')
     expect(source).toContain('if (destroyed || previewCollapsed) return')
     expect(source).toContain("type: 'workshop:cancel-preview'")
     expect(source).toContain('schedulePreview(true)')

@@ -232,6 +232,36 @@ export function buildVariableIndex(
   }
 }
 
+
+export interface WorkshopPromptGroup {
+  categoryBlock: PromptBlockDTO | null
+  children: PromptBlockDTO[]
+}
+
+/** Mirror Loom's category grouping semantics, including explicit group breakouts. */
+export function computePromptGroups(blocks: readonly PromptBlockDTO[]): WorkshopPromptGroup[] {
+  if (blocks.length === 0) return []
+  const result: WorkshopPromptGroup[] = []
+  let currentGroup: WorkshopPromptGroup = { categoryBlock: null, children: [] }
+
+  for (const block of blocks) {
+    if (block.marker === 'category') {
+      if (currentGroup.categoryBlock || currentGroup.children.length > 0) result.push(currentGroup)
+      currentGroup = { categoryBlock: block, children: [] }
+      continue
+    }
+
+    if (block.group !== undefined && block.group !== (currentGroup.categoryBlock?.id ?? null)) {
+      if (currentGroup.categoryBlock || currentGroup.children.length > 0) result.push(currentGroup)
+      currentGroup = { categoryBlock: null, children: [] }
+    }
+    currentGroup.children.push(block)
+  }
+
+  if (currentGroup.categoryBlock || currentGroup.children.length > 0) result.push(currentGroup)
+  return result
+}
+
 export interface UniqueBlockPatchResult {
   ok: boolean
   blocks: PromptBlockDTO[]
@@ -312,3 +342,25 @@ export function overlaySelectedDraft(
 
   return { blocks: patched.blocks, promptVariableValues: nextValues }
 }
+
+export interface WorkshopTransientDraft {
+  selectedBlockId: string | null
+  value: { blocks: readonly PromptBlockDTO[]; promptVariableValues: PromptVariableValuesDTO } | null
+}
+
+/** Overlay up to several independent native-editor drafts onto one fresh host graph. */
+export function overlaySelectedDrafts(
+  hostValue: { blocks: readonly PromptBlockDTO[]; promptVariableValues: PromptVariableValuesDTO },
+  drafts: readonly WorkshopTransientDraft[],
+): { blocks: PromptBlockDTO[]; promptVariableValues: PromptVariableValuesDTO } {
+  let current = {
+    blocks: [...hostValue.blocks],
+    promptVariableValues: { ...hostValue.promptVariableValues },
+  }
+
+  for (const draft of drafts) {
+    current = overlaySelectedDraft(current, draft.value, draft.selectedBlockId)
+  }
+  return current
+}
+
