@@ -37,13 +37,12 @@ describe('Workshop frontend layout contract', () => {
     expect(source).toContain('MAX_TOOLBAR_REPAIR_ATTEMPTS = 3')
   })
 
-  test('gives each rail ownership of its own collapse control and prompt category bulk controls', () => {
+  test('gives each rail ownership of its own collapse control and uses one next-action category bulk control', () => {
     expect(source).toContain('data-action="left" aria-label="Collapse prompts"')
     expect(source).toContain('data-action="right" aria-label="Collapse variables"')
-    expect(source).toContain('data-action="expand-categories"')
-    expect(source).toContain('data-action="collapse-categories"')
-    expect(source).toContain('collapsedCategories.clear()')
-    expect(source).toContain('if (group.categoryBlock) collapsedCategories.add(group.categoryBlock.id)')
+    expect(source).toContain('data-action="toggle-categories"')
+    expect(source).toContain("allCategoriesCollapsed ? 'Expand all categories' : 'Collapse all categories'")
+    expect(source).toContain('for (const id of categoryIds) collapsedCategories.add(id)')
   })
 
   test('bounds and enlarges the native Loom editor without stealing its scroll area', () => {
@@ -58,7 +57,6 @@ describe('Workshop frontend layout contract', () => {
     expect(source).toContain('data-role="secondary-editor-mount"')
     expect(source).toContain('ctx.components.mountLoomBlockEditor(secondaryEditorMount')
     expect(source).toContain('void requestSecondaryBlock(block.id === secondaryBlockId ? null : block.id)')
-    expect(source).toContain('void requestSecondaryBlock(null)')
     expect(source).toContain('&& !secondaryBlockId')
     expect(source).toContain('decorateNativeMount(secondaryEditorMount, false)')
   })
@@ -102,15 +100,15 @@ describe('Workshop frontend layout contract', () => {
     expect(source).toContain("}, 'primary', blockId)")
     expect(source).toContain("}, 'secondary', blockId)")
     expect(source).toContain("row.addEventListener('click', () => { void requestSelectedBlock(block.id) })")
-    expect(source).toContain('async function requestSecondaryBlock(blockId: string | null): Promise<void>')
-    expect(source).toContain('void requestSecondaryBlock(block.id === secondaryBlockId ? null : block.id)')
-    expect(source).toContain('draftSlotsDiscardedBySelection({')
+    expect(source).toContain("split.addEventListener('click', () => { void requestSecondaryBlock(block.id === secondaryBlockId ? null : block.id) })")
   })
 
-  test('renders real Loom categories and reserves edit actions for category headers', () => {
+  test('renders real Loom categories with separate disclosure controls and full-row block navigation', () => {
     expect(source).toContain('for (const group of computePromptGroups(value.blocks))')
     expect(source).toContain('collapsedCategories.has(category.id)')
-    expect(source).toContain("const edit = button('workshop-mini-button', `Edit category ${category.name || ''}`.trim(), ICONS.pencil)")
+    expect(source).toContain("'workshop-category-toggle'")
+    expect(source).toContain("row.addEventListener('click', () => { void requestSelectedBlock(category.id) })")
+    expect(source).not.toContain('Edit category ${category.name')
   })
 
   test('hard-bounds category chevron SVGs so intrinsic SVG sizing cannot blow out the prompt rail', () => {
@@ -132,6 +130,12 @@ describe('Workshop frontend layout contract', () => {
     expect(source).toContain('workshop-variable-refcount')
     expect(source).toContain('workshop-variable-macro')
     expect(source).toContain('`Defined in ${primary.blockName}`')
+  })
+
+  test('defaults dry-run preview to Stack while keeping Resolved available', () => {
+    expect(source).toContain("let previewTab: 'resolved' | 'stack' = 'stack'")
+    expect(source).toContain('data-preview-tab="resolved">Resolved</button>')
+    expect(source).toContain('data-preview-tab="stack" class="active">Stack</button>')
   })
 
   test('makes dry-run preview draggable, searchable, and content-collapsible', () => {

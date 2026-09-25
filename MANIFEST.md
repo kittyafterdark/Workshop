@@ -1,6 +1,6 @@
-# Lumiverse Workshop v0.3.2 — Source Manifest
+# Lumiverse Workshop v0.3.3 — Source Manifest
 
-Cumulative editable source package. This patch adds guarded prompt navigation so native Loom drafts cannot be silently discarded when switching prompts, while retaining the fullscreen/topology behavior from 0.3.1.
+Cumulative editable source package. This patch defaults the dry run to Stack and refines prompt-category navigation with dedicated disclosure carets plus a single next-action Expand/Collapse All control, while retaining the 0.3.2 unsaved-draft guard.
 
 ## Files
 

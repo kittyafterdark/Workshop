@@ -6,6 +6,13 @@ Workshop is a fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.3.3 prompt navigation polish
+
+- Makes `Stack` the default dry-run preview while keeping `Resolved` one click away.
+- Separates category disclosure from category editing: the small caret only expands/collapses that category, while clicking the category row opens the category block in the native Loom editor.
+- Replaces separate Expand All / Collapse All prompt controls with one next-action button. If any category is open it offers Collapse All; once everything is collapsed it flips to Expand All.
+- Keeps the 0.3.2 unsaved-draft navigation guard on category-row navigation and split-pane actions.
+
 ## 0.3.2 unsaved-draft navigation guard
 
 - Prompts with native Loom edits that have not been saved now block prompt navigation behind a warning confirmation instead of silently discarding the draft. Cancel keeps the current prompt and its transient editor state intact; `Discard changes` performs the requested navigation.

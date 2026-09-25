@@ -266,6 +266,9 @@ const WORKSHOP_CSS = String.raw`
 .workshop-search:focus { border-color: var(--lumiverse-primary, currentColor); }
 .workshop-scroll { min-height: 0; overflow: auto; padding: 2px 7px 14px; }
 .workshop-row-wrap { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px; align-items: center; }
+.workshop-row-wrap.category-wrap { grid-template-columns: auto minmax(0, 1fr); }
+.workshop-category-toggle { width: 24px; height: 28px; display: inline-grid; place-items: center; align-self: center; border: 0; border-radius: 6px; background: transparent; color: var(--lumiverse-text-muted); cursor: pointer; }
+.workshop-category-toggle:hover { color: var(--lumiverse-text); background: var(--lumiverse-fill-subtle, rgba(255,255,255,.04)); }
 .workshop-row { width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 7px 8px; margin: 1px 0; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--lumiverse-text); text-align: left; cursor: pointer; }
 .workshop-row:hover { background: var(--lumiverse-fill-subtle, rgba(255,255,255,.04)); }
 .workshop-row.selected { border-color: var(--lumiverse-primary-050, var(--lumiverse-primary)); background: var(--lumiverse-primary-010, rgba(255,255,255,.05)); }
@@ -534,8 +537,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
           <span class="workshop-rail-title">PROMPTS</span>
           <span class="workshop-count" data-role="prompt-count"></span>
           <span class="workshop-rail-tools">
-            <button class="workshop-mini-button" type="button" data-action="expand-categories" aria-label="Expand all categories" title="Expand all categories">${ICONS.chevronDown}</button>
-            <button class="workshop-mini-button" type="button" data-action="collapse-categories" aria-label="Collapse all categories" title="Collapse all categories">${ICONS.right}</button>
+            <button class="workshop-mini-button" type="button" data-action="toggle-categories" aria-label="Collapse all categories" title="Collapse all categories">${ICONS.right}</button>
           </span>
           <button class="workshop-mini-button workshop-rail-collapse" type="button" data-action="left" aria-label="Collapse prompts">${ICONS.left}</button>
         </div>
@@ -563,8 +565,8 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
           <div class="workshop-preview-toolbar">
             <span class="workshop-preview-label">PREVIEW</span>
             <div class="workshop-segment" data-role="preview-tabs">
-              <button type="button" data-preview-tab="resolved" class="active">Resolved</button>
-              <button type="button" data-preview-tab="stack">Stack</button>
+              <button type="button" data-preview-tab="resolved">Resolved</button>
+              <button type="button" data-preview-tab="stack" class="active">Stack</button>
             </div>
             <input class="workshop-preview-search" data-role="preview-search" type="search" placeholder="Search dry run…" aria-label="Search dry run">
             <span class="workshop-preview-status" data-role="preview-status"></span>
@@ -626,7 +628,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   let selectedVariableName: string | null = null
   let promptQuery = ''
   let variableQuery = ''
-  let previewTab: 'resolved' | 'stack' = 'resolved'
+  let previewTab: 'resolved' | 'stack' = 'stack'
   let previewQuery = ''
   let previewEntriesCollapsed = false
   let previewCollapsed = false
@@ -927,8 +929,20 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       if (category) {
         visible += 1
         const wrap = document.createElement('div')
-        wrap.className = 'workshop-row-wrap'
+        wrap.className = 'workshop-row-wrap category-wrap'
         const collapsed = collapsedCategories.has(category.id) && !query
+
+        const toggle = button(
+          'workshop-category-toggle',
+          `${collapsed ? 'Expand' : 'Collapse'} ${category.name || 'category'}`,
+          `<span class="workshop-category-chevron${collapsed ? ' collapsed' : ''}">${ICONS.chevronDown}</span>`,
+        )
+        toggle.addEventListener('click', () => {
+          if (collapsedCategories.has(category.id)) collapsedCategories.delete(category.id)
+          else collapsedCategories.add(category.id)
+          renderPrompts()
+        })
+        wrap.append(toggle)
 
         const row = document.createElement('button')
         row.type = 'button'
@@ -939,21 +953,10 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
 
         const name = document.createElement('span')
         name.className = 'workshop-row-name'
-        const chevron = document.createElement('span')
-        chevron.className = `workshop-category-chevron${collapsed ? ' collapsed' : ''}`
-        chevron.innerHTML = ICONS.chevronDown
-        name.append(chevron, document.createTextNode(category.name || '(Untitled category)'))
+        name.textContent = category.name || '(Untitled category)'
         row.append(name, makeMeta(category))
-        row.addEventListener('click', () => {
-          if (collapsedCategories.has(category.id)) collapsedCategories.delete(category.id)
-          else collapsedCategories.add(category.id)
-          renderPrompts()
-        })
+        row.addEventListener('click', () => { void requestSelectedBlock(category.id) })
         wrap.append(row)
-
-        const edit = button('workshop-mini-button', `Edit category ${category.name || ''}`.trim(), ICONS.pencil)
-        edit.addEventListener('click', () => { void requestSelectedBlock(category.id) })
-        wrap.append(edit)
         promptList.append(wrap)
 
         if (!collapsed) {
@@ -964,6 +967,15 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
 
       for (const child of (query ? matchingChildren : group.children)) appendPromptRow(child, false)
     }
+
+    const categoryIds = computePromptGroups(value.blocks)
+      .map((group) => group.categoryBlock?.id ?? null)
+      .filter((id): id is string => Boolean(id))
+    const allCategoriesCollapsed = categoryIds.length > 0 && categoryIds.every((id) => collapsedCategories.has(id))
+    const categoryBulkButton = root.querySelector<HTMLButtonElement>('[data-action="toggle-categories"]')!
+    categoryBulkButton.setAttribute('aria-label', allCategoriesCollapsed ? 'Expand all categories' : 'Collapse all categories')
+    categoryBulkButton.title = allCategoriesCollapsed ? 'Expand all categories' : 'Collapse all categories'
+    categoryBulkButton.innerHTML = allCategoriesCollapsed ? ICONS.chevronDown : ICONS.right
 
     promptCount.textContent = `${visible}/${value.blocks.length}`
     promptNote.textContent = selectedVariable
@@ -1744,14 +1756,17 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     renderPreview()
   })
 
-  root.querySelector<HTMLButtonElement>('[data-action="expand-categories"]')!.addEventListener('click', () => {
-    collapsedCategories.clear()
-    renderPrompts()
-  })
-  root.querySelector<HTMLButtonElement>('[data-action="collapse-categories"]')!.addEventListener('click', () => {
-    collapsedCategories.clear()
-    for (const group of computePromptGroups(effectiveValue().blocks)) {
-      if (group.categoryBlock) collapsedCategories.add(group.categoryBlock.id)
+  root.querySelector<HTMLButtonElement>('[data-action="toggle-categories"]')!.addEventListener('click', () => {
+    const groups = computePromptGroups(effectiveValue().blocks)
+    const categoryIds = groups
+      .map((group) => group.categoryBlock?.id ?? null)
+      .filter((id): id is string => Boolean(id))
+    const allCategoriesCollapsed = categoryIds.length > 0 && categoryIds.every((id) => collapsedCategories.has(id))
+    if (allCategoriesCollapsed) {
+      collapsedCategories.clear()
+    } else {
+      collapsedCategories.clear()
+      for (const id of categoryIds) collapsedCategories.add(id)
     }
     renderPrompts()
   })
