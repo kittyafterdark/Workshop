@@ -1,6 +1,6 @@
-# Lumiverse Workshop v0.3.0 — Source Manifest
+# Lumiverse Workshop v0.3.1 — Source Manifest
 
-Cumulative editable source package. This pass makes Workshop truly fullscreen, compresses the topbar, improves dry-run inspection, restructures the variable rail, fixes nested variable-reference attribution, and adds prompt-category bulk expansion controls.
+Cumulative editable source package. This patch keeps Workshop fullscreen within Lumiverse's host-defined interactive viewport so Tauri/window chrome does not cover the Workshop header, while retaining the complete 0.3.0 topology and inspection pass.
 
 ## Files
 

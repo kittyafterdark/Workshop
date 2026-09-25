@@ -477,7 +477,14 @@ function installFullscreenModalChrome(root: HTMLElement): () => void {
   const targets = [body, container, backdrop, hostHeader].filter((entry): entry is HTMLElement => entry instanceof HTMLElement)
   const snapshots = targets.map((element) => ({ element, style: element.getAttribute('style') }))
 
-  Object.assign(backdrop.style, { alignItems: 'stretch', justifyContent: 'stretch' })
+  Object.assign(backdrop.style, {
+    alignItems: 'stretch',
+    justifyContent: 'stretch',
+    top: 'var(--app-interactive-safe-top, 0px)',
+    bottom: 'auto',
+    height: 'var(--app-interactive-viewport-height, calc(100dvh - var(--app-interactive-safe-top, 0px)))',
+    padding: '0',
+  })
   Object.assign(container.style, { width: '100%', maxWidth: 'none', height: '100%', maxHeight: 'none', borderRadius: '0', border: '0' })
   Object.assign(body.style, { padding: '0', overflow: 'hidden', minHeight: '0', height: '100%' })
   if (hostHeader instanceof HTMLElement) hostHeader.style.display = 'none'

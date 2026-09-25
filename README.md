@@ -6,6 +6,12 @@ Workshop is a fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.3.1 desktop safe-area fullscreen
+
+- Keeps Workshop edge-to-edge inside Lumiverse's **interactive** application viewport rather than blindly occupying raw `y = 0`. The fullscreen modal now honors Lumiverse's `--app-interactive-safe-top` and `--app-interactive-viewport-height` host contract, so the Tauri HTML titlebar remains visible instead of covering Workshop's compact header.
+- Uses host CSS variables rather than a hard-coded desktop offset, so browser/PWA behavior stays fullscreen while Tauri, window-controls-overlay PWAs, safe-area devices, UI scaling, and future titlebar height changes remain host-owned.
+- Removes the host modal backdrop padding while Workshop owns the fullscreen surface, preserving the true edge-to-edge application workspace below the reserved chrome.
+
 ## 0.3.0 fullscreen + topology pass
 
 - Promotes Workshop's extension-owned host modal to true fullscreen and hides the redundant host modal header. Workshop now uses one compact 40px topbar: `Workshop | preset name | sync state + close`.
