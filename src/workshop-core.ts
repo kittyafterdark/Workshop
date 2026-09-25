@@ -341,6 +341,36 @@ export function overlaySelectedDraft(
   return { blocks: patched.blocks, promptVariableValues: nextValues }
 }
 
+
+export type WorkshopEditorSlot = 'primary' | 'secondary'
+
+export interface WorkshopNavigationDraftState {
+  primaryBlockId: string | null
+  secondaryBlockId: string | null
+  primaryDirty: boolean
+  secondaryDirty: boolean
+}
+
+/** Return the transient editor drafts that would be discarded by a selection change. */
+export function draftSlotsDiscardedBySelection(
+  state: WorkshopNavigationDraftState,
+  slot: WorkshopEditorSlot,
+  blockId: string | null,
+): WorkshopEditorSlot[] {
+  if (slot === 'primary') {
+    if (blockId === state.primaryBlockId) return []
+    const discarded: WorkshopEditorSlot[] = []
+    if (state.primaryDirty && state.primaryBlockId) discarded.push('primary')
+    if (blockId && blockId === state.secondaryBlockId && state.secondaryDirty && state.secondaryBlockId) {
+      discarded.push('secondary')
+    }
+    return discarded
+  }
+
+  if (blockId === state.secondaryBlockId) return []
+  return state.secondaryDirty && state.secondaryBlockId ? ['secondary'] : []
+}
+
 export interface WorkshopTransientDraft {
   selectedBlockId: string | null
   value: { blocks: readonly PromptBlockDTO[]; promptVariableValues: PromptVariableValuesDTO } | null

@@ -1,4 +1,4 @@
-# Workshop 0.3.1 verification
+# Workshop 0.3.2 verification
 
 Workshop targets `lumiverse-spindle-types` 0.6.31 and the corresponding controlled Loom editor implementation.
 
@@ -9,7 +9,8 @@ Validation performed while assembling this archive:
 - Focused Node assertions verify nested prompt-variable references such as `{{if::{{var::KL_CRAFT_FOCUS}}::...}}` are counted instead of falsely reported as unused.
 - Frontend source contracts cover host-safe fullscreen modal promotion (including `--app-interactive-safe-top` / `--app-interactive-viewport-height`), the compact single topbar, prompt Expand All / Collapse All, variable-pane thirds/halves with Show More, readable variable cards, dry-run search/content collapse, dual editors, and native variable sidecar geometry.
 - Existing desynchronization, targeted-write, preview cancellation, and category-grouping tests remain in the cumulative source.
-- Distribution bundles are synchronized with the 0.3.1 source and pass `node --check`.
+- Navigation-draft coverage verifies that primary/secondary prompt switches only guard editor lanes whose transient native drafts would actually be discarded, including the secondary-to-primary promotion case.
+- Distribution bundles are synchronized with the 0.3.2 source and pass `node --check`.
 - All shipped text files use LF repository semantics.
 
 The artifact sandbox does not provide Bun, so run the canonical repository suite locally before publishing:

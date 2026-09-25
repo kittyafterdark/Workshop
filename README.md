@@ -6,6 +6,12 @@ Workshop is a fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.3.2 unsaved-draft navigation guard
+
+- Prompts with native Loom edits that have not been saved now block prompt navigation behind a warning confirmation instead of silently discarding the draft. Cancel keeps the current prompt and its transient editor state intact; `Discard changes` performs the requested navigation.
+- The same guard covers prompt-rail navigation, variable/dependency jumps, category edit jumps, native Back actions, replacing/closing the secondary split prompt, and promoting the current secondary prompt into the primary lane.
+- Navigation only warns for the editor lane(s) that would actually lose a draft. A clean lane or an unrelated dirty split pane does not produce a false confirmation.
+
 ## 0.3.1 desktop safe-area fullscreen
 
 - Keeps Workshop edge-to-edge inside Lumiverse's **interactive** application viewport rather than blindly occupying raw `y = 0`. The fullscreen modal now honors Lumiverse's `--app-interactive-safe-top` and `--app-interactive-viewport-height` host contract, so the Tauri HTML titlebar remains visible instead of covering Workshop's compact header.

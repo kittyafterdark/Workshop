@@ -14,11 +14,13 @@ import {
   blockVariableStats,
   buildVariableIndex,
   computePromptGroups,
+  draftSlotsDiscardedBySelection,
   overlaySelectedDrafts,
   parsePromptVariableReferences,
   promptBlockSearchText,
   replaceUniqueBlock,
   type VariableIndexEntry,
+  type WorkshopEditorSlot,
   type WorkshopVariableIndex,
 } from './workshop-core.js'
 
@@ -729,16 +731,47 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     })
   }
 
-  function setSelectedBlock(blockId: string | null): void {
-    if (blockId !== null && !canonicalValue.blocks.some((block) => block.id === blockId)) return
+  let discardNavigationConfirmOpen = false
+
+  function blockForDraftSlot(slot: WorkshopEditorSlot): PromptBlockDTO | null {
+    return slot === 'primary' ? selectedBlock() : secondaryBlock()
+  }
+
+  async function confirmDraftDiscard(slots: readonly WorkshopEditorSlot[]): Promise<boolean> {
+    const uniqueSlots = [...new Set(slots)]
+    if (uniqueSlots.length === 0) return true
+    if (discardNavigationConfirmOpen) return false
+
+    const dirtyBlocks = uniqueSlots
+      .map(blockForDraftSlot)
+      .filter((block): block is PromptBlockDTO => block !== null)
+    if (dirtyBlocks.length === 0) return true
+
+    discardNavigationConfirmOpen = true
+    try {
+      const names = dirtyBlocks.map((block) => block.name || block.id).join(', ')
+      const result = await ctx.ui.showConfirm({
+        title: 'Discard unsaved prompt edits?',
+        message: `${names} ${dirtyBlocks.length > 1 ? 'have' : 'has'} edits that have not been saved. Leave ${dirtyBlocks.length > 1 ? 'these prompts' : 'this prompt'} and discard the changes?`,
+        variant: 'warning',
+        confirmLabel: 'Discard changes',
+      })
+      return result.confirmed
+    } finally {
+      discardNavigationConfirmOpen = false
+    }
+  }
+
+  function applySelectedBlock(blockId: string | null): void {
+    if (blockId === selectedBlockId) return
     preserveHostScrollThroughSelection(() => {
       if (blockId && blockId === secondaryBlockId) {
         secondaryBlockId = null
         secondaryDraftValue = null
         secondaryEditor.update({ selectedBlockId: null })
       }
+      primaryDraftValue = null
       selectedBlockId = blockId
-      if (!blockId) primaryDraftValue = null
       recomputeDerived()
       editor.update({ selectedBlockId: blockId })
       renderEditorVisibility()
@@ -746,18 +779,29 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       renderVariables()
       setDraftStatus()
       scheduleNativeDecoration()
+      schedulePreview()
       closeMobileRails()
     })
   }
 
-  function setSecondaryBlock(blockId: string | null): void {
-    if (blockId !== null) {
-      const block = canonicalValue.blocks.find((entry) => entry.id === blockId)
-      if (!block || block.marker === 'category' || blockId === selectedBlockId) return
-    }
+  async function requestSelectedBlock(blockId: string | null): Promise<void> {
+    if (blockId !== null && !canonicalValue.blocks.some((block) => block.id === blockId)) return
+    if (blockId === selectedBlockId) return
+    const discarded = draftSlotsDiscardedBySelection({
+      primaryBlockId: selectedBlockId,
+      secondaryBlockId,
+      primaryDirty: primaryDraftValue !== null,
+      secondaryDirty: secondaryDraftValue !== null,
+    }, 'primary', blockId)
+    if (!(await confirmDraftDiscard(discarded))) return
+    applySelectedBlock(blockId)
+  }
+
+  function applySecondaryBlock(blockId: string | null): void {
+    if (blockId === secondaryBlockId) return
     preserveHostScrollThroughSelection(() => {
+      secondaryDraftValue = null
       secondaryBlockId = blockId
-      if (!blockId) secondaryDraftValue = null
       recomputeDerived()
       secondaryEditor.update({ selectedBlockId: blockId })
       renderEditorVisibility()
@@ -765,8 +809,25 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       renderVariables()
       setDraftStatus()
       scheduleNativeDecoration()
+      schedulePreview()
       closeMobileRails()
     })
+  }
+
+  async function requestSecondaryBlock(blockId: string | null): Promise<void> {
+    if (blockId !== null) {
+      const block = canonicalValue.blocks.find((entry) => entry.id === blockId)
+      if (!block || block.marker === 'category' || blockId === selectedBlockId) return
+    }
+    if (blockId === secondaryBlockId) return
+    const discarded = draftSlotsDiscardedBySelection({
+      primaryBlockId: selectedBlockId,
+      secondaryBlockId,
+      primaryDirty: primaryDraftValue !== null,
+      secondaryDirty: secondaryDraftValue !== null,
+    }, 'secondary', blockId)
+    if (!(await confirmDraftDiscard(discarded))) return
+    applySecondaryBlock(blockId)
   }
 
   function renderEditorVisibility(): void {
@@ -842,7 +903,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       name.className = 'workshop-row-name'
       name.textContent = block.name || '(Untitled block)'
       row.append(name, makeMeta(block))
-      row.addEventListener('click', () => setSelectedBlock(block.id))
+      row.addEventListener('click', () => { void requestSelectedBlock(block.id) })
       wrap.append(row)
 
       if (selectedBlockId && block.id !== selectedBlockId) {
@@ -851,7 +912,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
           block.id === secondaryBlockId ? 'Close second prompt' : `Open ${block.name || 'prompt'} beside current prompt`,
           block.id === secondaryBlockId ? ICONS.close : ICONS.columns,
         )
-        split.addEventListener('click', () => setSecondaryBlock(block.id === secondaryBlockId ? null : block.id))
+        split.addEventListener('click', () => { void requestSecondaryBlock(block.id === secondaryBlockId ? null : block.id) })
         wrap.append(split)
       }
       promptList.append(wrap)
@@ -891,7 +952,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
         wrap.append(row)
 
         const edit = button('workshop-mini-button', `Edit category ${category.name || ''}`.trim(), ICONS.pencil)
-        edit.addEventListener('click', () => setSelectedBlock(category.id))
+        edit.addEventListener('click', () => { void requestSelectedBlock(category.id) })
         wrap.append(edit)
         promptList.append(wrap)
 
@@ -989,7 +1050,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       jump.type = 'button'
       jump.className = 'workshop-link-button'
       jump.textContent = definition.blockName
-      jump.addEventListener('click', () => setSelectedBlock(definition.blockId))
+      jump.addEventListener('click', () => { void requestSelectedBlock(definition.blockId) })
       detail.append(jump)
     }
 
@@ -1009,7 +1070,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
         jump.className = 'workshop-link-button'
         jump.textContent = `${reference.blockName} · ${reference.count}×`
         jump.title = reference.macros.join('\n')
-        jump.addEventListener('click', () => setSelectedBlock(reference.blockId))
+        jump.addEventListener('click', () => { void requestSelectedBlock(reference.blockId) })
         detail.append(jump)
       }
     }
@@ -1042,7 +1103,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       row.append(title, copy)
       row.addEventListener('click', () => {
         const first = missing.references[0]
-        if (first) setSelectedBlock(first.blockId)
+        if (first) void requestSelectedBlock(first.blockId)
       })
       diagnostics.append(row)
     }
@@ -1319,7 +1380,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
           pre.textContent = entry.content
           row.append(pre)
         }
-        if (entry.blockId) row.addEventListener('click', () => setSelectedBlock(entry.blockId!))
+        if (entry.blockId) row.addEventListener('click', () => { void requestSelectedBlock(entry.blockId!) })
         previewContent.append(row)
       }
       if (visible.length === 0) {
@@ -1518,20 +1579,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     selectedBlockId: null,
     onSelectedBlockChange: (blockId) => {
       if (destroyed) return
-      if (blockId && blockId === secondaryBlockId) {
-        secondaryBlockId = null
-        secondaryDraftValue = null
-        secondaryEditor.update({ selectedBlockId: null })
-      }
-      selectedBlockId = blockId
-      if (!blockId) primaryDraftValue = null
-      recomputeDerived()
-      renderEditorVisibility()
-      renderPrompts()
-      renderVariables()
-      setDraftStatus()
-      scheduleNativeDecoration()
-      schedulePreview()
+      void requestSelectedBlock(blockId)
     },
     onDraftChange: (value) => {
       if (destroyed) return
@@ -1557,20 +1605,10 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     onSelectedBlockChange: (blockId) => {
       if (destroyed) return
       if (blockId === selectedBlockId) {
-        secondaryBlockId = null
-        secondaryDraftValue = null
-        secondaryEditor.update({ selectedBlockId: null })
-      } else {
-        secondaryBlockId = blockId
-        if (!blockId) secondaryDraftValue = null
+        void requestSecondaryBlock(null)
+        return
       }
-      recomputeDerived()
-      renderEditorVisibility()
-      renderPrompts()
-      renderVariables()
-      setDraftStatus()
-      scheduleNativeDecoration()
-      schedulePreview()
+      void requestSecondaryBlock(blockId)
     },
     onDraftChange: (value) => {
       if (destroyed) return

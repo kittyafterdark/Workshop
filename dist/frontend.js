@@ -240,6 +240,22 @@ function overlaySelectedDraft(hostValue, draftValue, selectedBlockId) {
   }
   return { blocks: patched.blocks, promptVariableValues: nextValues };
 }
+function draftSlotsDiscardedBySelection(state, slot, blockId) {
+  if (slot === "primary") {
+    if (blockId === state.primaryBlockId)
+      return [];
+    const discarded = [];
+    if (state.primaryDirty && state.primaryBlockId)
+      discarded.push("primary");
+    if (blockId && blockId === state.secondaryBlockId && state.secondaryDirty && state.secondaryBlockId) {
+      discarded.push("secondary");
+    }
+    return discarded;
+  }
+  if (blockId === state.secondaryBlockId)
+    return [];
+  return state.secondaryDirty && state.secondaryBlockId ? ["secondary"] : [];
+}
 function overlaySelectedDrafts(hostValue, drafts) {
   let current = {
     blocks: [...hostValue.blocks],
@@ -942,8 +958,35 @@ function createWorkshopSession(ctx, onClosed) {
       });
     });
   }
-  function setSelectedBlock(blockId) {
-    if (blockId !== null && !canonicalValue.blocks.some((block) => block.id === blockId))
+  let discardNavigationConfirmOpen = false;
+  function blockForDraftSlot(slot) {
+    return slot === "primary" ? selectedBlock() : secondaryBlock();
+  }
+  async function confirmDraftDiscard(slots) {
+    const uniqueSlots = [...new Set(slots)];
+    if (uniqueSlots.length === 0)
+      return true;
+    if (discardNavigationConfirmOpen)
+      return false;
+    const dirtyBlocks = uniqueSlots.map(blockForDraftSlot).filter((block) => block !== null);
+    if (dirtyBlocks.length === 0)
+      return true;
+    discardNavigationConfirmOpen = true;
+    try {
+      const names = dirtyBlocks.map((block) => block.name || block.id).join(", ");
+      const result = await ctx.ui.showConfirm({
+        title: "Discard unsaved prompt edits?",
+        message: `${names} ${dirtyBlocks.length > 1 ? "have" : "has"} edits that have not been saved. Leave ${dirtyBlocks.length > 1 ? "these prompts" : "this prompt"} and discard the changes?`,
+        variant: "warning",
+        confirmLabel: "Discard changes"
+      });
+      return result.confirmed;
+    } finally {
+      discardNavigationConfirmOpen = false;
+    }
+  }
+  function applySelectedBlock(blockId) {
+    if (blockId === selectedBlockId)
       return;
     preserveHostScrollThroughSelection(() => {
       if (blockId && blockId === secondaryBlockId) {
@@ -951,9 +994,8 @@ function createWorkshopSession(ctx, onClosed) {
         secondaryDraftValue = null;
         secondaryEditor.update({ selectedBlockId: null });
       }
+      primaryDraftValue = null;
       selectedBlockId = blockId;
-      if (!blockId)
-        primaryDraftValue = null;
       recomputeDerived();
       editor.update({ selectedBlockId: blockId });
       renderEditorVisibility();
@@ -961,19 +1003,31 @@ function createWorkshopSession(ctx, onClosed) {
       renderVariables();
       setDraftStatus();
       scheduleNativeDecoration();
+      schedulePreview();
       closeMobileRails();
     });
   }
-  function setSecondaryBlock(blockId) {
-    if (blockId !== null) {
-      const block = canonicalValue.blocks.find((entry) => entry.id === blockId);
-      if (!block || block.marker === "category" || blockId === selectedBlockId)
-        return;
-    }
+  async function requestSelectedBlock(blockId) {
+    if (blockId !== null && !canonicalValue.blocks.some((block) => block.id === blockId))
+      return;
+    if (blockId === selectedBlockId)
+      return;
+    const discarded = draftSlotsDiscardedBySelection({
+      primaryBlockId: selectedBlockId,
+      secondaryBlockId,
+      primaryDirty: primaryDraftValue !== null,
+      secondaryDirty: secondaryDraftValue !== null
+    }, "primary", blockId);
+    if (!await confirmDraftDiscard(discarded))
+      return;
+    applySelectedBlock(blockId);
+  }
+  function applySecondaryBlock(blockId) {
+    if (blockId === secondaryBlockId)
+      return;
     preserveHostScrollThroughSelection(() => {
+      secondaryDraftValue = null;
       secondaryBlockId = blockId;
-      if (!blockId)
-        secondaryDraftValue = null;
       recomputeDerived();
       secondaryEditor.update({ selectedBlockId: blockId });
       renderEditorVisibility();
@@ -981,8 +1035,27 @@ function createWorkshopSession(ctx, onClosed) {
       renderVariables();
       setDraftStatus();
       scheduleNativeDecoration();
+      schedulePreview();
       closeMobileRails();
     });
+  }
+  async function requestSecondaryBlock(blockId) {
+    if (blockId !== null) {
+      const block = canonicalValue.blocks.find((entry) => entry.id === blockId);
+      if (!block || block.marker === "category" || blockId === selectedBlockId)
+        return;
+    }
+    if (blockId === secondaryBlockId)
+      return;
+    const discarded = draftSlotsDiscardedBySelection({
+      primaryBlockId: selectedBlockId,
+      secondaryBlockId,
+      primaryDirty: primaryDraftValue !== null,
+      secondaryDirty: secondaryDraftValue !== null
+    }, "secondary", blockId);
+    if (!await confirmDraftDiscard(discarded))
+      return;
+    applySecondaryBlock(blockId);
   }
   function renderEditorVisibility() {
     const dual = Boolean(selectedBlockId && secondaryBlockId);
@@ -1054,11 +1127,15 @@ function createWorkshopSession(ctx, onClosed) {
       name.className = "workshop-row-name";
       name.textContent = block.name || "(Untitled block)";
       row.append(name, makeMeta(block));
-      row.addEventListener("click", () => setSelectedBlock(block.id));
+      row.addEventListener("click", () => {
+        requestSelectedBlock(block.id);
+      });
       wrap.append(row);
       if (selectedBlockId && block.id !== selectedBlockId) {
         const split = button("workshop-mini-button", block.id === secondaryBlockId ? "Close second prompt" : `Open ${block.name || "prompt"} beside current prompt`, block.id === secondaryBlockId ? ICONS.close : ICONS.columns);
-        split.addEventListener("click", () => setSecondaryBlock(block.id === secondaryBlockId ? null : block.id));
+        split.addEventListener("click", () => {
+          requestSecondaryBlock(block.id === secondaryBlockId ? null : block.id);
+        });
         wrap.append(split);
       }
       promptList.append(wrap);
@@ -1099,7 +1176,9 @@ function createWorkshopSession(ctx, onClosed) {
         });
         wrap.append(row);
         const edit = button("workshop-mini-button", `Edit category ${category.name || ""}`.trim(), ICONS.pencil);
-        edit.addEventListener("click", () => setSelectedBlock(category.id));
+        edit.addEventListener("click", () => {
+          requestSelectedBlock(category.id);
+        });
         wrap.append(edit);
         promptList.append(wrap);
         if (!collapsed) {
@@ -1192,7 +1271,9 @@ function createWorkshopSession(ctx, onClosed) {
       jump.type = "button";
       jump.className = "workshop-link-button";
       jump.textContent = definition.blockName;
-      jump.addEventListener("click", () => setSelectedBlock(definition.blockId));
+      jump.addEventListener("click", () => {
+        requestSelectedBlock(definition.blockId);
+      });
       detail.append(jump);
     }
     const refsLabel = document.createElement("div");
@@ -1212,7 +1293,9 @@ function createWorkshopSession(ctx, onClosed) {
         jump.textContent = `${reference.blockName} · ${reference.count}×`;
         jump.title = reference.macros.join(`
 `);
-        jump.addEventListener("click", () => setSelectedBlock(reference.blockId));
+        jump.addEventListener("click", () => {
+          requestSelectedBlock(reference.blockId);
+        });
         detail.append(jump);
       }
     }
@@ -1240,7 +1323,7 @@ function createWorkshopSession(ctx, onClosed) {
       row.addEventListener("click", () => {
         const first = missing.references[0];
         if (first)
-          setSelectedBlock(first.blockId);
+          requestSelectedBlock(first.blockId);
       });
       diagnostics.append(row);
     }
@@ -1487,7 +1570,9 @@ function createWorkshopSession(ctx, onClosed) {
           row.append(pre);
         }
         if (entry.blockId)
-          row.addEventListener("click", () => setSelectedBlock(entry.blockId));
+          row.addEventListener("click", () => {
+            requestSelectedBlock(entry.blockId);
+          });
         previewContent.append(row);
       }
       if (visible.length === 0) {
@@ -1678,21 +1763,7 @@ function createWorkshopSession(ctx, onClosed) {
     onSelectedBlockChange: (blockId) => {
       if (destroyed)
         return;
-      if (blockId && blockId === secondaryBlockId) {
-        secondaryBlockId = null;
-        secondaryDraftValue = null;
-        secondaryEditor.update({ selectedBlockId: null });
-      }
-      selectedBlockId = blockId;
-      if (!blockId)
-        primaryDraftValue = null;
-      recomputeDerived();
-      renderEditorVisibility();
-      renderPrompts();
-      renderVariables();
-      setDraftStatus();
-      scheduleNativeDecoration();
-      schedulePreview();
+      requestSelectedBlock(blockId);
     },
     onDraftChange: (value) => {
       if (destroyed)
@@ -1720,21 +1791,10 @@ function createWorkshopSession(ctx, onClosed) {
       if (destroyed)
         return;
       if (blockId === selectedBlockId) {
-        secondaryBlockId = null;
-        secondaryDraftValue = null;
-        secondaryEditor.update({ selectedBlockId: null });
-      } else {
-        secondaryBlockId = blockId;
-        if (!blockId)
-          secondaryDraftValue = null;
+        requestSecondaryBlock(null);
+        return;
       }
-      recomputeDerived();
-      renderEditorVisibility();
-      renderPrompts();
-      renderVariables();
-      setDraftStatus();
-      scheduleNativeDecoration();
-      schedulePreview();
+      requestSecondaryBlock(blockId);
     },
     onDraftChange: (value) => {
       if (destroyed)

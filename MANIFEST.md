@@ -1,6 +1,6 @@
-# Lumiverse Workshop v0.3.1 — Source Manifest
+# Lumiverse Workshop v0.3.2 — Source Manifest
 
-Cumulative editable source package. This patch keeps Workshop fullscreen within Lumiverse's host-defined interactive viewport so Tauri/window chrome does not cover the Workshop header, while retaining the complete 0.3.0 topology and inspection pass.
+Cumulative editable source package. This patch adds guarded prompt navigation so native Loom drafts cannot be silently discarded when switching prompts, while retaining the fullscreen/topology behavior from 0.3.1.
 
 ## Files
 

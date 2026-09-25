@@ -3,6 +3,7 @@ import type { PromptBlockDTO, PromptVariableDefDTO, PromptVariableValuesDTO } fr
 import {
   buildVariableIndex,
   computePromptGroups,
+  draftSlotsDiscardedBySelection,
   describePromptVariableValue,
   overlaySelectedDraft,
   overlaySelectedDrafts,
@@ -184,6 +185,35 @@ describe('Workshop targeted graph writes', () => {
     expect(replaceUniqueBlock(current, [block({ id: 'b', name: 'B' })], 'b').reason).toBe('missing_target')
     expect(replaceUniqueBlock([block({ id: 'a', name: 'A1' }), block({ id: 'a', name: 'A2' })], [block({ id: 'a', name: 'A3' })], 'a').reason)
       .toBe('ambiguous_target')
+  })
+
+
+  test('guards only drafts that a prompt navigation would actually discard', () => {
+    const state = {
+      primaryBlockId: 'a',
+      secondaryBlockId: 'b',
+      primaryDirty: true,
+      secondaryDirty: true,
+    }
+
+    expect(draftSlotsDiscardedBySelection(state, 'primary', 'a')).toEqual([])
+    expect(draftSlotsDiscardedBySelection(state, 'primary', 'c')).toEqual(['primary'])
+    expect(draftSlotsDiscardedBySelection(state, 'primary', 'b')).toEqual(['primary', 'secondary'])
+    expect(draftSlotsDiscardedBySelection(state, 'primary', null)).toEqual(['primary'])
+    expect(draftSlotsDiscardedBySelection(state, 'secondary', 'c')).toEqual(['secondary'])
+    expect(draftSlotsDiscardedBySelection(state, 'secondary', null)).toEqual(['secondary'])
+  })
+
+  test('does not guard clean editor lanes during prompt navigation', () => {
+    const state = {
+      primaryBlockId: 'a',
+      secondaryBlockId: 'b',
+      primaryDirty: false,
+      secondaryDirty: false,
+    }
+
+    expect(draftSlotsDiscardedBySelection(state, 'primary', 'c')).toEqual([])
+    expect(draftSlotsDiscardedBySelection(state, 'secondary', null)).toEqual([])
   })
 
   test('overlays only the selected transient draft onto newer host state', () => {

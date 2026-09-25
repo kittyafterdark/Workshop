@@ -57,7 +57,8 @@ describe('Workshop frontend layout contract', () => {
   test('supports dual native Loom editors and restores variables beneath in dual mode', () => {
     expect(source).toContain('data-role="secondary-editor-mount"')
     expect(source).toContain('ctx.components.mountLoomBlockEditor(secondaryEditorMount')
-    expect(source).toContain('setSecondaryBlock(block.id === secondaryBlockId ? null : block.id)')
+    expect(source).toContain('void requestSecondaryBlock(block.id === secondaryBlockId ? null : block.id)')
+    expect(source).toContain('void requestSecondaryBlock(null)')
     expect(source).toContain('&& !secondaryBlockId')
     expect(source).toContain('decorateNativeMount(secondaryEditorMount, false)')
   })
@@ -88,6 +89,22 @@ describe('Workshop frontend layout contract', () => {
     expect(source).toContain("variablePaneScroll.set(body.dataset.variablePaneBody ?? '', body.scrollTop)")
     expect(source).toContain('function preserveHostScrollThroughSelection(work: () => void): void')
     expect(source).toContain('preserveHostScrollThroughSelection(() => {')
+  })
+
+
+  test('guards prompt navigation when native Loom drafts are unsaved', () => {
+    expect(source).toContain('async function confirmDraftDiscard(slots: readonly WorkshopEditorSlot[]): Promise<boolean>')
+    expect(source).toContain("title: 'Discard unsaved prompt edits?'")
+    expect(source).toContain("confirmLabel: 'Discard changes'")
+    expect(source).toContain('async function requestSelectedBlock(blockId: string | null): Promise<void>')
+    expect(source).toContain('async function requestSecondaryBlock(blockId: string | null): Promise<void>')
+    expect(source).toContain("draftSlotsDiscardedBySelection({")
+    expect(source).toContain("}, 'primary', blockId)")
+    expect(source).toContain("}, 'secondary', blockId)")
+    expect(source).toContain("row.addEventListener('click', () => { void requestSelectedBlock(block.id) })")
+    expect(source).toContain('async function requestSecondaryBlock(blockId: string | null): Promise<void>')
+    expect(source).toContain('void requestSecondaryBlock(block.id === secondaryBlockId ? null : block.id)')
+    expect(source).toContain('draftSlotsDiscardedBySelection({')
   })
 
   test('renders real Loom categories and reserves edit actions for category headers', () => {
