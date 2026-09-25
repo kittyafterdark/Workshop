@@ -71,6 +71,16 @@ describe('Workshop prompt-variable topology', () => {
     })
   })
 
+  test('finds prompt-variable references nested inside other macros', () => {
+    const refs = parsePromptVariableReferences(
+      '{{if::{{var::KL_CRAFT_FOCUS}}::focused::other}} {{setvar::route::{{var::KL_CRAFT_FOCUS::ison::canon}}}}',
+    )
+
+    expect(refs).toHaveLength(2)
+    expect(refs[0]).toMatchObject({ name: 'KL_CRAFT_FOCUS', raw: '{{var::KL_CRAFT_FOCUS}}' })
+    expect(refs[1]).toMatchObject({ name: 'KL_CRAFT_FOCUS', mode: 'ison', arguments: ['canon'] })
+  })
+
   test('attributes definitions to owning block titles and references to consuming blocks', () => {
     const blocks = [
       block({ id: 'controls', name: 'Narrative Controls', variables: [pov], content: '' }),

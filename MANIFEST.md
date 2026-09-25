@@ -1,12 +1,13 @@
-# Lumiverse Workshop v0.2.5 — Source Manifest
+# Lumiverse Workshop v0.3.0 — Source Manifest
 
-Cumulative editable source package. This patch preserves prompt/variable rail position and host-modal scroll during prompt selection so long presets do not jump back to the top when Workshop rerenders its navigation surfaces.
+Cumulative editable source package. This pass makes Workshop truly fullscreen, compresses the topbar, improves dry-run inspection, restructures the variable rail, fixes nested variable-reference attribution, and adds prompt-category bulk expansion controls.
 
 ## Files
 
 - `.gitignore`
 - `README.md`
 - `VERIFICATION.md`
+- `bun.lock`
 - `dist/backend.js`
 - `dist/frontend.js`
 - `package.json`

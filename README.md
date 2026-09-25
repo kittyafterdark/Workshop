@@ -1,10 +1,20 @@
 # Workshop
 
-Workshop is a near-fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse's native Loom editor authoritative while making large presets navigable: prompt/category structure on the left, native editing in the center, variable/dependency context on the right, and a live assembly dry run below or beside the editor.
+Workshop is a fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse's native Loom editor authoritative while making large presets navigable: prompt/category structure on the left, native editing in the center, variable/dependency context on the right, and a live assembly dry run below or beside the editor.
 
 ## Requirements
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
+
+## 0.3.0 fullscreen + topology pass
+
+- Promotes Workshop's extension-owned host modal to true fullscreen and hides the redundant host modal header. Workshop now uses one compact 40px topbar: `Workshop | preset name | sync state + close`.
+- Adds dry-run search across resolved messages and stack entries plus a content-collapse toggle, while keeping the existing whole-preview Hide/Show and draggable bottom/side sizing.
+- Rebuilds the variable rail as two equal panes (`All variables`, `Diagnostics`) or three equal panes when a variable is selected (selected detail + all + diagnostics). Each pane starts bounded and can temporarily take the whole rail through `Show more`.
+- Makes variable cards easier to scan with a stronger label → reference count → macro → owner hierarchy instead of a compressed metadata line.
+- Fixes false `REFERENCED BY · 0×` results for variables nested inside other Loom macros. Workshop now scans direct `{{var::...}}` openers independently instead of pairing the first outer `{{` with an inner variable's closing braces.
+- Adds explicit Expand All / Collapse All controls for Loom prompt categories.
+- Keeps ephemeral prompt-variable *value* overrides out of this pass intentionally; that remains a separate preview-state feature so temporary values cannot accidentally become persisted configuration.
 
 ## 0.2.5 selection scroll stability
 

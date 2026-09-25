@@ -15,28 +15,27 @@ function isWorkshopBackendMessage(value) {
 // src/workshop-core.ts
 function parsePromptVariableReferences(content) {
   const refs = [];
-  let cursor = 0;
-  while (cursor < content.length) {
-    const start = content.indexOf("{{", cursor);
+  const opener = /\{\{\s*var\s*::/gi;
+  for (const match of content.matchAll(opener)) {
+    const start = match.index ?? -1;
     if (start < 0)
-      break;
-    const close = content.indexOf("}}", start + 2);
+      continue;
+    const close = content.indexOf("}}", start + match[0].length);
     if (close < 0)
-      break;
+      continue;
     const raw = content.slice(start, close + 2);
     const body = content.slice(start + 2, close).trim();
     const parts = body.split("::").map((part) => part.trim());
-    if (parts[0] === "var" && parts[1]) {
-      refs.push({
-        name: parts[1],
-        raw,
-        mode: parts[2] || null,
-        arguments: parts.slice(3).filter(Boolean),
-        start,
-        end: close + 2
-      });
-    }
-    cursor = close + 2;
+    if (parts[0]?.toLowerCase() !== "var" || !parts[1])
+      continue;
+    refs.push({
+      name: parts[1],
+      raw,
+      mode: parts[2] || null,
+      arguments: parts.slice(3).filter(Boolean),
+      start,
+      end: close + 2
+    });
   }
   return refs;
 }
@@ -298,10 +297,10 @@ var WORKSHOP_CSS = String.raw`
   --wk-preview-width: 430px;
   position: relative;
   width: 100%;
-  height: calc(100dvh - 120px);
-  min-height: 520px;
+  height: 100%;
+  min-height: 0;
   display: grid;
-  grid-template-rows: 52px minmax(0, 1fr);
+  grid-template-rows: 40px minmax(0, 1fr);
   overflow: hidden;
   color: var(--lumiverse-text, #eee);
   background: var(--lumiverse-bg-deep, #101014);
@@ -309,23 +308,27 @@ var WORKSHOP_CSS = String.raw`
 }
 .workshop-header {
   min-width: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr);
   align-items: center;
-  gap: 9px;
-  padding: 0 12px;
+  gap: 10px;
+  padding: 0 10px;
   border-bottom: 1px solid var(--lumiverse-border, rgba(255,255,255,.1));
   background: var(--lumiverse-bg-dark, #141419);
 }
-.workshop-brand { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
+.workshop-header-left,
+.workshop-header-actions { min-width: 0; display: flex; align-items: center; gap: 7px; }
+.workshop-header-actions { justify-content: flex-end; }
+.workshop-header-brand { font-size: 12px; font-weight: 800; white-space: nowrap; }
 .workshop-preset-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: center;
   color: var(--lumiverse-text-muted, #9ca0aa);
-  font-size: 12px;
+  font-size: 11px;
 }
-.workshop-header-spacer { flex: 1; }
 .workshop-header-status {
   display: inline-flex;
   align-items: center;
@@ -400,6 +403,7 @@ var WORKSHOP_CSS = String.raw`
 .right-collapsed .workshop-rail.right .workshop-count,
 .right-collapsed .workshop-rail.right .workshop-search-wrap,
 .right-collapsed .workshop-rail.right .workshop-scroll,
+.right-collapsed .workshop-rail.right .workshop-variable-workspace,
 .right-collapsed .workshop-rail.right .workshop-rail-note { display: none; }
 .left-collapsed .workshop-rail.left .workshop-rail-header,
 .right-collapsed .workshop-rail.right .workshop-rail-header { justify-content: center; padding: 7px 2px; }
@@ -455,7 +459,9 @@ var WORKSHOP_CSS = String.raw`
 .workshop-shell.preview-collapsed .workshop-editor-region { grid-column: 1; grid-row: 1; }
 .workshop-shell.preview-collapsed .workshop-preview-resizer { display: none; }
 .workshop-shell.preview-collapsed .workshop-preview { grid-column: 1; grid-row: 3; border-left: 0; border-top: 1px solid var(--lumiverse-border, rgba(255,255,255,.1)); }
-.workshop-preview-toolbar { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 9px; border-bottom: 1px solid var(--lumiverse-border, rgba(255,255,255,.08)); }
+.workshop-preview-toolbar { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 0 8px; border-bottom: 1px solid var(--lumiverse-border, rgba(255,255,255,.08)); }
+.workshop-preview-search { flex: 1 1 150px; min-width: 86px; max-width: 220px; height: 26px; padding: 0 8px; border: 1px solid var(--lumiverse-border-neutral, var(--lumiverse-border)); border-radius: 7px; outline: none; background: var(--lumiverse-input-bg, var(--lumiverse-bg-deep)); color: var(--lumiverse-text); font: inherit; font-size: 10px; }
+.workshop-preview-search:focus { border-color: var(--lumiverse-primary, currentColor); }
 .workshop-preview-label { font-size: 11px; font-weight: 750; letter-spacing: .08em; color: var(--lumiverse-text-muted); }
 .workshop-preview-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--lumiverse-text-dim); }
 .workshop-preview-toolbar .spacer { flex: 1; }
@@ -464,6 +470,11 @@ var WORKSHOP_CSS = String.raw`
 .workshop-segment button.active { color: var(--lumiverse-primary-text, var(--lumiverse-text)); background: var(--lumiverse-primary-015, rgba(255,255,255,.09)); }
 .workshop-preview-content { overflow: auto; padding: 12px; }
 .preview-collapsed .workshop-preview-content { display: none; }
+.preview-collapsed .workshop-preview-search,
+.preview-collapsed .workshop-preview-status,
+.preview-collapsed .workshop-preview-toolbar [data-action="preview-entries-collapse"] { display: none; }
+.workshop-shell.preview-split:not(.preview-collapsed) .workshop-preview-label { display: none; }
+.workshop-shell.preview-split:not(.preview-collapsed) .workshop-preview-search { min-width: 70px; max-width: none; }
 .workshop-preview-state { height: 100%; min-height: 92px; display: grid; place-items: center; text-align: center; color: var(--lumiverse-text-muted); font-size: 12px; padding: 18px; }
 .workshop-message,
 .workshop-breakdown-row { border: 1px solid var(--lumiverse-border, rgba(255,255,255,.09)); border-radius: 9px; background: var(--lumiverse-bg-deep, #101014); margin-bottom: 9px; overflow: hidden; }
@@ -471,6 +482,8 @@ var WORKSHOP_CSS = String.raw`
 .workshop-breakdown-head { display: flex; align-items: center; gap: 7px; padding: 7px 9px; border-bottom: 1px solid var(--lumiverse-border, rgba(255,255,255,.07)); color: var(--lumiverse-text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
 .workshop-message pre,
 .workshop-breakdown-row pre { margin: 0; padding: 10px; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--lumiverse-text); font: 11px/1.55 var(--lumiverse-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
+.workshop-preview.entries-collapsed .workshop-message pre,
+.workshop-preview.entries-collapsed .workshop-breakdown-row pre { display: none; }
 .workshop-breakdown-row { width: 100%; text-align: left; color: inherit; cursor: default; }
 .workshop-breakdown-row.has-block { cursor: pointer; }
 .workshop-breakdown-row.has-block:hover { border-color: var(--lumiverse-primary, currentColor); }
@@ -497,13 +510,28 @@ var WORKSHOP_CSS = String.raw`
 .workshop-category-chevron svg { width: 13px; height: 13px; display: block; max-width: 13px; max-height: 13px; }
 .workshop-category-chevron.collapsed { transform: rotate(-90deg); }
 .workshop-rail-note { padding: 8px 10px; font-size: 10px; color: var(--lumiverse-text-dim); border-top: 1px solid var(--lumiverse-border); }
+.workshop-rail-tools { display: inline-flex; gap: 3px; align-items: center; }
+.left-collapsed .workshop-rail-tools { display: none; }
 
-.workshop-variable-card { width: 100%; display: block; padding: 8px 9px; margin: 3px 0; border: 1px solid transparent; border-radius: 8px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
-.workshop-variable-card:hover { background: var(--lumiverse-fill-subtle, rgba(255,255,255,.04)); }
+.workshop-variable-workspace { min-height: 0; display: grid; grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 6px; padding: 0 7px 8px; overflow: hidden; }
+.workshop-variable-workspace.has-selection { grid-template-rows: repeat(3, minmax(0, 1fr)); }
+.workshop-variable-workspace.has-expanded-pane { grid-template-rows: minmax(0, 1fr); }
+.workshop-variable-workspace.has-expanded-pane .workshop-variable-pane:not(.expanded) { display: none; }
+.workshop-variable-pane { min-height: 0; display: grid; grid-template-rows: 31px minmax(0, 1fr); border: 1px solid var(--lumiverse-border, rgba(255,255,255,.08)); border-radius: 9px; overflow: hidden; background: var(--lumiverse-bg-deep, #101014); }
+.workshop-variable-pane-header { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 0 8px; border-bottom: 1px solid var(--lumiverse-border, rgba(255,255,255,.07)); color: var(--lumiverse-text-muted); }
+.workshop-variable-pane-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.workshop-variable-pane-count { margin-left: auto; font-size: 9px; color: var(--lumiverse-text-dim); }
+.workshop-variable-pane-toggle { border: 0; background: transparent; color: var(--lumiverse-text-muted); cursor: pointer; font: inherit; font-size: 9px; padding: 3px 2px; }
+.workshop-variable-pane-toggle:hover { color: var(--lumiverse-text); }
+.workshop-variable-pane-body { min-height: 0; overflow: auto; padding: 5px; scrollbar-gutter: stable; }
+.workshop-variable-card { width: 100%; display: block; padding: 9px 10px; margin: 4px 0; border: 1px solid var(--lumiverse-border, rgba(255,255,255,.07)); border-radius: 8px; background: var(--lumiverse-fill-subtle, rgba(255,255,255,.018)); color: inherit; text-align: left; cursor: pointer; }
+.workshop-variable-card:hover { border-color: var(--lumiverse-border-strong, rgba(255,255,255,.15)); background: var(--lumiverse-fill-subtle, rgba(255,255,255,.04)); }
 .workshop-variable-card.selected { border-color: var(--lumiverse-primary-050, var(--lumiverse-primary)); background: var(--lumiverse-primary-010, rgba(255,255,255,.05)); }
-.workshop-variable-label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 650; }
-.workshop-variable-macro { display: block; margin-top: 3px; color: var(--lumiverse-text-dim); font: 9px var(--lumiverse-font-mono, ui-monospace, monospace); overflow: hidden; text-overflow: ellipsis; }
-.workshop-variable-owner { display: block; margin-top: 4px; color: var(--lumiverse-text-muted); font-size: 9px; }
+.workshop-variable-card-head { min-width: 0; display: flex; align-items: baseline; gap: 6px; }
+.workshop-variable-label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 700; line-height: 1.35; }
+.workshop-variable-refcount { flex: 0 0 auto; color: var(--lumiverse-text-dim); font-size: 9px; }
+.workshop-variable-macro { display: block; margin-top: 4px; color: var(--lumiverse-primary-text, var(--lumiverse-text-muted)); font: 9.5px/1.4 var(--lumiverse-font-mono, ui-monospace, monospace); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workshop-variable-owner { display: block; margin-top: 5px; color: var(--lumiverse-text-muted); font-size: 9px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workshop-section-label { margin: 13px 8px 5px; color: var(--lumiverse-text-dim); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .workshop-variable-detail { margin: 3px 2px 10px; padding: 10px; border: 1px solid var(--lumiverse-border, rgba(255,255,255,.09)); border-radius: 10px; background: var(--lumiverse-bg-deep, #101014); }
 .workshop-detail-heading { font-size: 12px; font-weight: 750; margin-bottom: 4px; }
@@ -515,7 +543,7 @@ var WORKSHOP_CSS = String.raw`
 .workshop-detail-value { min-width: 0; overflow-wrap: anywhere; color: var(--lumiverse-text); white-space: pre-line; }
 .workshop-description { margin-top: 9px; color: var(--lumiverse-text-muted); font-size: 10px; line-height: 1.45; }
 .workshop-link-button { display: block; width: 100%; margin-top: 4px; padding: 5px 7px; border: 1px solid var(--lumiverse-border, rgba(255,255,255,.08)); border-radius: 6px; background: transparent; color: var(--lumiverse-text); text-align: left; cursor: pointer; font-size: 9px; }
-.workshop-diagnostics { margin: 8px 2px 0; padding-top: 8px; border-top: 1px solid var(--lumiverse-border, rgba(255,255,255,.08)); }
+.workshop-diagnostics { min-height: 0; }
 .workshop-diagnostic-row { width: 100%; padding: 6px 7px; margin: 3px 0; border: 1px solid var(--lumiverse-warning-020, var(--lumiverse-border)); border-radius: 7px; background: var(--lumiverse-warning-015, rgba(255,180,0,.06)); color: var(--lumiverse-text); text-align: left; font-size: 9px; }
 .workshop-diagnostic-title { display: block; font-weight: 700; }
 .workshop-diagnostic-copy { display: block; margin-top: 2px; color: var(--lumiverse-text-muted); }
@@ -530,6 +558,9 @@ var WORKSHOP_CSS = String.raw`
   .workshop-mobile-only { display: inline-grid; }
   .workshop-header-status { display: none; }
   .workshop-preset-name { max-width: 48vw; }
+  .workshop-variable-workspace,
+  .workshop-variable-workspace.has-selection { grid-template-rows: repeat(2, minmax(180px, auto)); overflow: auto; }
+  .workshop-variable-workspace.has-selection { grid-template-rows: repeat(3, minmax(180px, auto)); }
   .workshop-body,
   .workshop-shell.left-collapsed .workshop-body,
   .workshop-shell.right-collapsed .workshop-body { display: block; position: relative; }
@@ -560,6 +591,8 @@ var WORKSHOP_CSS = String.raw`
   .right-collapsed .workshop-rail.right .workshop-search-wrap,
   .right-collapsed .workshop-rail.right .workshop-scroll,
   .right-collapsed .workshop-rail.right .workshop-rail-note { display: initial; }
+  .right-collapsed .workshop-rail.right .workshop-variable-workspace { display: grid; }
+  .left-collapsed .workshop-rail-tools { display: inline-flex; }
   .workshop-rail-collapse { display: none; }
 }
 `;
@@ -663,6 +696,29 @@ ${part.content}`;
 function uniqueRequestId(sequence) {
   return `workshop-${Date.now().toString(36)}-${sequence.toString(36)}`;
 }
+function installFullscreenModalChrome(root) {
+  const body = root.parentElement;
+  const container = body?.parentElement;
+  const backdrop = container?.parentElement;
+  const hostHeader = body?.previousElementSibling;
+  if (!(body instanceof HTMLElement) || !(container instanceof HTMLElement) || !(backdrop instanceof HTMLElement))
+    return () => {};
+  const targets = [body, container, backdrop, hostHeader].filter((entry) => entry instanceof HTMLElement);
+  const snapshots = targets.map((element) => ({ element, style: element.getAttribute("style") }));
+  Object.assign(backdrop.style, { alignItems: "stretch", justifyContent: "stretch" });
+  Object.assign(container.style, { width: "100%", maxWidth: "none", height: "100%", maxHeight: "none", borderRadius: "0", border: "0" });
+  Object.assign(body.style, { padding: "0", overflow: "hidden", minHeight: "0", height: "100%" });
+  if (hostHeader instanceof HTMLElement)
+    hostHeader.style.display = "none";
+  return () => {
+    for (const snapshot of snapshots) {
+      if (snapshot.style === null)
+        snapshot.element.removeAttribute("style");
+      else
+        snapshot.element.setAttribute("style", snapshot.style);
+    }
+  };
+}
 function createWorkshopSession(ctx, onClosed) {
   const initialState = ctx.ui.presetEditor.getState();
   const initialValue = editorValueFromHost(ctx);
@@ -676,24 +732,31 @@ function createWorkshopSession(ctx, onClosed) {
     persistent: true
   });
   const root = modal.root;
+  const restoreHostModalChrome = installFullscreenModalChrome(root);
   root.className = "workshop-shell";
   root.tabIndex = -1;
   root.innerHTML = `
     <header class="workshop-header">
-      <button class="workshop-icon-button workshop-mobile-only" type="button" data-action="mobile-left" aria-label="Open prompts">${ICONS.right}</button>
-      <div class="workshop-brand">
-        <span class="workshop-preset-name"></span>
+      <div class="workshop-header-left">
+        <button class="workshop-icon-button workshop-mobile-only" type="button" data-action="mobile-left" aria-label="Open prompts">${ICONS.right}</button>
+        <span class="workshop-header-brand">Workshop</span>
       </div>
-      <div class="workshop-header-spacer"></div>
-      <div class="workshop-header-status"><span class="workshop-dot"></span><span class="workshop-status-copy">Synced</span></div>
-      <button class="workshop-icon-button workshop-mobile-only" type="button" data-action="mobile-right" aria-label="Open variables">${ICONS.left}</button>
-      <button class="workshop-icon-button" type="button" data-action="close" aria-label="Close Workshop">${ICONS.close}</button>
+      <span class="workshop-preset-name"></span>
+      <div class="workshop-header-actions">
+        <div class="workshop-header-status"><span class="workshop-dot"></span><span class="workshop-status-copy">Synced</span></div>
+        <button class="workshop-icon-button workshop-mobile-only" type="button" data-action="mobile-right" aria-label="Open variables">${ICONS.left}</button>
+        <button class="workshop-icon-button" type="button" data-action="close" aria-label="Close Workshop">${ICONS.close}</button>
+      </div>
     </header>
     <div class="workshop-body">
       <aside class="workshop-rail left">
         <div class="workshop-rail-header">
           <span class="workshop-rail-title">PROMPTS</span>
           <span class="workshop-count" data-role="prompt-count"></span>
+          <span class="workshop-rail-tools">
+            <button class="workshop-mini-button" type="button" data-action="expand-categories" aria-label="Expand all categories" title="Expand all categories">${ICONS.chevronDown}</button>
+            <button class="workshop-mini-button" type="button" data-action="collapse-categories" aria-label="Collapse all categories" title="Collapse all categories">${ICONS.right}</button>
+          </span>
           <button class="workshop-mini-button workshop-rail-collapse" type="button" data-action="left" aria-label="Collapse prompts">${ICONS.left}</button>
         </div>
         <div class="workshop-search-wrap"><input class="workshop-search" data-role="prompt-search" type="search" placeholder="Search prompts…" aria-label="Search prompts"></div>
@@ -723,8 +786,10 @@ function createWorkshopSession(ctx, onClosed) {
               <button type="button" data-preview-tab="resolved" class="active">Resolved</button>
               <button type="button" data-preview-tab="stack">Stack</button>
             </div>
+            <input class="workshop-preview-search" data-role="preview-search" type="search" placeholder="Search dry run…" aria-label="Search dry run">
             <span class="workshop-preview-status" data-role="preview-status"></span>
             <span class="spacer"></span>
+            <button class="workshop-text-button" type="button" data-action="preview-entries-collapse">Collapse</button>
             <button class="workshop-icon-button" type="button" data-action="refresh" aria-label="Refresh preview">${ICONS.refresh}</button>
             <button class="workshop-icon-button" type="button" data-action="preview-layout" aria-label="Move preview to the side">${ICONS.split}</button>
             <button class="workshop-text-button" type="button" data-action="preview-collapse">Hide</button>
@@ -740,7 +805,7 @@ function createWorkshopSession(ctx, onClosed) {
           <span class="workshop-count" data-role="variable-count"></span>
         </div>
         <div class="workshop-search-wrap"><input class="workshop-search" data-role="variable-search" type="search" placeholder="Search variables…" aria-label="Search variables"></div>
-        <div class="workshop-scroll" data-role="variable-list"></div>
+        <div class="workshop-variable-workspace" data-role="variable-list"></div>
       </aside>
     </div>
   `;
@@ -762,7 +827,10 @@ function createWorkshopSession(ctx, onClosed) {
   const editorEmpty = root.querySelector('[data-role="editor-empty"]');
   const previewStatus = root.querySelector('[data-role="preview-status"]');
   const previewContent = root.querySelector('[data-role="preview-content"]');
+  const previewSearch = root.querySelector('[data-role="preview-search"]');
+  const previewElement = root.querySelector(".workshop-preview");
   const previewLayoutButton = root.querySelector('[data-action="preview-layout"]');
+  const previewEntriesCollapseButton = root.querySelector('[data-action="preview-entries-collapse"]');
   const previewCollapseButton = root.querySelector('[data-action="preview-collapse"]');
   const leftRailButton = root.querySelector('[data-action="left"]');
   const rightRailButton = root.querySelector('[data-action="right"]');
@@ -777,8 +845,11 @@ function createWorkshopSession(ctx, onClosed) {
   let promptQuery = "";
   let variableQuery = "";
   let previewTab = "resolved";
+  let previewQuery = "";
+  let previewEntriesCollapsed = false;
   let previewCollapsed = false;
   let previewSplit = false;
+  let expandedVariablePane = null;
   let previewTimer = null;
   let previewSequence = 0;
   let activePreviewRequestId = null;
@@ -793,7 +864,8 @@ function createWorkshopSession(ctx, onClosed) {
   ]);
   let derivedIndex = buildVariableIndex(derivedValue.blocks, derivedValue.promptVariableValues);
   const collapsedCategories = new Set;
-  const cleanups = [];
+  const variablePaneScroll = new Map;
+  const cleanups = [restoreHostModalChrome];
   let editor;
   let secondaryEditor;
   function recomputeDerived() {
@@ -1139,13 +1211,12 @@ function createWorkshopSession(ctx, onClosed) {
     }
     container.append(detail);
   }
+  function diagnosticCount(index) {
+    return index.missing.length + index.variables.filter((variable) => variable.duplicateDefinition || variable.unused).length + index.duplicateBlockIds.length;
+  }
   function renderDiagnostics(container, index) {
     const diagnostics = document.createElement("div");
     diagnostics.className = "workshop-diagnostics";
-    const label = document.createElement("div");
-    label.className = "workshop-section-label";
-    label.textContent = "DIAGNOSTICS";
-    diagnostics.append(label);
     let count = 0;
     for (const missing of index.missing) {
       count += 1;
@@ -1180,6 +1251,7 @@ function createWorkshopSession(ctx, onClosed) {
       row.append(title, copy);
       row.addEventListener("click", () => {
         selectedVariableName = entry.name;
+        expandedVariablePane = "detail";
         renderVariables();
         renderPrompts();
       });
@@ -1207,8 +1279,9 @@ function createWorkshopSession(ctx, onClosed) {
     container.append(diagnostics);
   }
   function renderVariables() {
-    const previousScrollTop = variableList.scrollTop;
-    const previousScrollLeft = variableList.scrollLeft;
+    for (const body of variableList.querySelectorAll("[data-variable-pane-body]")) {
+      variablePaneScroll.set(body.dataset.variablePaneBody ?? "", body.scrollTop);
+    }
     const index = variableIndex();
     const query = variableQuery.trim().toLowerCase();
     variableList.replaceChildren();
@@ -1216,8 +1289,42 @@ function createWorkshopSession(ctx, onClosed) {
     if (selectedVariableName && !index.byName.has(selectedVariableName))
       selectedVariableName = null;
     const selectedEntry = selectedVariableName ? index.byName.get(selectedVariableName) : undefined;
-    if (selectedEntry)
-      appendDefinitionDetail(variableList, selectedEntry);
+    if (!selectedEntry && expandedVariablePane === "detail")
+      expandedVariablePane = null;
+    variableList.classList.toggle("has-selection", Boolean(selectedEntry));
+    variableList.classList.toggle("has-expanded-pane", Boolean(expandedVariablePane));
+    const makePane = (id, title, count) => {
+      const pane = document.createElement("section");
+      pane.className = `workshop-variable-pane${expandedVariablePane === id ? " expanded" : ""}`;
+      pane.dataset.variablePane = id;
+      const header = document.createElement("div");
+      header.className = "workshop-variable-pane-header";
+      const heading = document.createElement("span");
+      heading.className = "workshop-variable-pane-title";
+      heading.textContent = title;
+      const badge = document.createElement("span");
+      badge.className = "workshop-variable-pane-count";
+      badge.textContent = String(count);
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "workshop-variable-pane-toggle";
+      toggle.textContent = expandedVariablePane === id ? "Show sections" : "Show more";
+      toggle.addEventListener("click", () => {
+        expandedVariablePane = expandedVariablePane === id ? null : id;
+        renderVariables();
+      });
+      header.append(heading, badge, toggle);
+      const body = document.createElement("div");
+      body.className = "workshop-variable-pane-body";
+      body.dataset.variablePaneBody = id;
+      pane.append(header, body);
+      variableList.append(pane);
+      return { pane, body };
+    };
+    if (selectedEntry) {
+      const detailPane = makePane("detail", selectedEntry.definitions[0]?.definition.label || selectedEntry.name, "Selected");
+      appendDefinitionDetail(detailPane.body, selectedEntry);
+    }
     const current = selectedBlock();
     const currentNames = current ? new Set([
       ...(current.variables ?? []).map((variable) => variable.name),
@@ -1236,48 +1343,63 @@ function createWorkshopSession(ctx, onClosed) {
 `).toLowerCase();
       return !query || haystack.includes(query);
     });
+    const allPane = makePane("all", "All variables", visibleEntries.length);
     const appendCards = (title, entries) => {
       if (entries.length === 0)
         return;
-      const section = document.createElement("div");
-      section.className = "workshop-section-label";
-      section.textContent = title;
-      variableList.append(section);
+      if (title) {
+        const section = document.createElement("div");
+        section.className = "workshop-section-label";
+        section.textContent = title;
+        allPane.body.append(section);
+      }
       for (const entry of entries) {
         const primary = entry.definitions[0];
+        const refCount = entry.references.reduce((sum, ref) => sum + ref.count, 0);
         const card = document.createElement("button");
         card.type = "button";
         card.className = "workshop-variable-card";
         if (entry.name === selectedVariableName)
           card.classList.add("selected");
+        const head = document.createElement("span");
+        head.className = "workshop-variable-card-head";
         const label = document.createElement("span");
         label.className = "workshop-variable-label";
         label.textContent = primary?.definition.label || entry.name;
+        const refs = document.createElement("span");
+        refs.className = "workshop-variable-refcount";
+        refs.textContent = `${refCount} ref${refCount === 1 ? "" : "s"}`;
+        head.append(label, refs);
         const macro = document.createElement("span");
         macro.className = "workshop-variable-macro";
         macro.textContent = entry.macro;
         const owner = document.createElement("span");
         owner.className = "workshop-variable-owner";
-        owner.textContent = primary ? `${entry.definitions.length > 1 ? `${entry.definitions.length} definitions` : primary.blockName} · ${entry.references.reduce((sum, ref) => sum + ref.count, 0)} refs` : "Missing definition";
-        card.append(label, macro, owner);
+        owner.textContent = primary ? entry.definitions.length > 1 ? `Defined in ${entry.definitions.length} prompts` : `Defined in ${primary.blockName}` : "Missing definition";
+        card.append(head, macro, owner);
         card.addEventListener("click", () => {
           selectedVariableName = selectedVariableName === entry.name ? null : entry.name;
+          expandedVariablePane = null;
           renderVariables();
           renderPrompts();
         });
-        variableList.append(card);
+        allPane.body.append(card);
       }
     };
     const contextual = visibleEntries.filter((entry) => currentNames.has(entry.name));
     const contextualNames = new Set(contextual.map((entry) => entry.name));
-    appendCards(current ? "THIS PROMPT" : "", contextual);
-    appendCards(current ? "ALL VARIABLES" : "ALL VARIABLES", visibleEntries.filter((entry) => !contextualNames.has(entry.name)));
-    renderDiagnostics(variableList, index);
-    variableList.scrollTop = Math.min(previousScrollTop, Math.max(0, variableList.scrollHeight - variableList.clientHeight));
-    variableList.scrollLeft = Math.min(previousScrollLeft, Math.max(0, variableList.scrollWidth - variableList.clientWidth));
+    appendCards(current ? "This prompt" : "", contextual);
+    appendCards(current ? "Everything else" : "", visibleEntries.filter((entry) => !contextualNames.has(entry.name)));
+    const diagnosticsPane = makePane("diagnostics", "Diagnostics", diagnosticCount(index));
+    renderDiagnostics(diagnosticsPane.body, index);
+    for (const body of variableList.querySelectorAll("[data-variable-pane-body]")) {
+      const saved = variablePaneScroll.get(body.dataset.variablePaneBody ?? "") ?? 0;
+      body.scrollTop = Math.min(saved, Math.max(0, body.scrollHeight - body.clientHeight));
+    }
   }
   function renderPreview() {
     previewContent.replaceChildren();
+    previewElement.classList.toggle("entries-collapsed", previewEntriesCollapsed);
     if (previewCollapsed)
       return;
     const chatId = ctx.getActiveChat().chatId;
@@ -1310,20 +1432,33 @@ function createWorkshopSession(ctx, onClosed) {
       previewContent.append(state);
       return;
     }
+    const query = previewQuery.trim().toLowerCase();
     if (previewTab === "resolved") {
-      previewResult.messages.forEach((message, index) => {
+      const visible = previewResult.messages.map((message, index) => ({ message, index, content: messageContentText(message) })).filter(({ message, content }) => !query || [message.role, message.name ?? "", content].join(`
+`).toLowerCase().includes(query));
+      previewStatus.textContent = query ? `${visible.length}/${previewResult.messages.length} messages` : `${previewResult.messages.length} messages`;
+      for (const { message, index, content } of visible) {
         const card = document.createElement("article");
         card.className = "workshop-message";
         const head = document.createElement("div");
         head.className = "workshop-message-head";
         head.textContent = `${index + 1} · ${message.role}${message.name ? ` · ${message.name}` : ""}`;
         const pre = document.createElement("pre");
-        pre.textContent = messageContentText(message);
+        pre.textContent = content;
         card.append(head, pre);
         previewContent.append(card);
-      });
+      }
+      if (visible.length === 0) {
+        const state = document.createElement("div");
+        state.className = "workshop-preview-state";
+        state.textContent = "No dry-run messages match this search.";
+        previewContent.append(state);
+      }
     } else {
-      previewResult.breakdown.forEach((entry, index) => {
+      const visible = previewResult.breakdown.map((entry, index) => ({ entry, index })).filter(({ entry }) => !query || [entry.type, entry.name ?? "", entry.role ?? "", entry.content ?? ""].join(`
+`).toLowerCase().includes(query));
+      previewStatus.textContent = query ? `${visible.length}/${previewResult.breakdown.length} stack entries` : `${previewResult.breakdown.length} stack entries`;
+      for (const { entry, index } of visible) {
         const row = document.createElement("button");
         row.type = "button";
         row.className = `workshop-breakdown-row${entry.blockId ? " has-block" : ""}`;
@@ -1347,7 +1482,13 @@ function createWorkshopSession(ctx, onClosed) {
         if (entry.blockId)
           row.addEventListener("click", () => setSelectedBlock(entry.blockId));
         previewContent.append(row);
-      });
+      }
+      if (visible.length === 0) {
+        const state = document.createElement("div");
+        state.className = "workshop-preview-state";
+        state.textContent = "No dry-run stack entries match this search.";
+        previewContent.append(state);
+      }
     }
   }
   function schedulePreview(immediate = false) {
@@ -1463,23 +1604,7 @@ function createWorkshopSession(ctx, onClosed) {
   editorResizeObserver.observe(primarySlot);
   editorResizeObserver.observe(secondarySlot);
   cleanups.push(() => primaryObserver.disconnect(), () => secondaryObserver.disconnect(), () => editorResizeObserver.disconnect());
-  function fitWorkshopHeightToModalBody() {
-    const body = root.parentElement;
-    if (!(body instanceof HTMLElement))
-      return;
-    const style = getComputedStyle(body);
-    const paddingTop = Number.parseFloat(style.paddingTop) || 0;
-    const paddingBottom = Number.parseFloat(style.paddingBottom) || 0;
-    const available = Math.floor(body.clientHeight - paddingTop - paddingBottom);
-    if (available <= 0)
-      return;
-    root.style.height = `${available}px`;
-    root.style.minHeight = `${Math.min(520, available)}px`;
-  }
-  const initialFitFrame = requestAnimationFrame(fitWorkshopHeightToModalBody);
-  cleanups.push(() => cancelAnimationFrame(initialFitFrame));
   const onViewportResize = () => {
-    fitWorkshopHeightToModalBody();
     scheduleNativeDecoration();
   };
   window.addEventListener("resize", onViewportResize);
@@ -1741,6 +1866,22 @@ function createWorkshopSession(ctx, onClosed) {
     variableQuery = variableSearch.value;
     renderVariables();
   });
+  previewSearch.addEventListener("input", () => {
+    previewQuery = previewSearch.value;
+    renderPreview();
+  });
+  root.querySelector('[data-action="expand-categories"]').addEventListener("click", () => {
+    collapsedCategories.clear();
+    renderPrompts();
+  });
+  root.querySelector('[data-action="collapse-categories"]').addEventListener("click", () => {
+    collapsedCategories.clear();
+    for (const group of computePromptGroups(effectiveValue().blocks)) {
+      if (group.categoryBlock)
+        collapsedCategories.add(group.categoryBlock.id);
+    }
+    renderPrompts();
+  });
   root.querySelectorAll("[data-preview-tab]").forEach((tab) => {
     tab.addEventListener("click", () => {
       previewTab = tab.dataset.previewTab === "stack" ? "stack" : "resolved";
@@ -1777,6 +1918,11 @@ function createWorkshopSession(ctx, onClosed) {
     previewLayoutButton.title = previewSplit ? "Move preview to the bottom" : "Move preview to the side";
     previewLayoutButton.setAttribute("aria-label", previewLayoutButton.title);
     scheduleNativeDecoration();
+  });
+  previewEntriesCollapseButton.addEventListener("click", () => {
+    previewEntriesCollapsed = !previewEntriesCollapsed;
+    previewEntriesCollapseButton.textContent = previewEntriesCollapsed ? "Expand" : "Collapse";
+    renderPreview();
   });
   previewCollapseButton.addEventListener("click", () => {
     previewCollapsed = !previewCollapsed;

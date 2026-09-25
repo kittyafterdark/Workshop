@@ -56,28 +56,26 @@ export interface WorkshopVariableIndex {
 
 export function parsePromptVariableReferences(content: string): PromptVariableReference[] {
   const refs: PromptVariableReference[] = []
-  let cursor = 0
+  const opener = /\{\{\s*var\s*::/gi
 
-  while (cursor < content.length) {
-    const start = content.indexOf('{{', cursor)
-    if (start < 0) break
-    const close = content.indexOf('}}', start + 2)
-    if (close < 0) break
+  for (const match of content.matchAll(opener)) {
+    const start = match.index ?? -1
+    if (start < 0) continue
+    const close = content.indexOf('}}', start + match[0].length)
+    if (close < 0) continue
 
     const raw = content.slice(start, close + 2)
     const body = content.slice(start + 2, close).trim()
     const parts = body.split('::').map((part) => part.trim())
-    if (parts[0] === 'var' && parts[1]) {
-      refs.push({
-        name: parts[1],
-        raw,
-        mode: parts[2] || null,
-        arguments: parts.slice(3).filter(Boolean),
-        start,
-        end: close + 2,
-      })
-    }
-    cursor = close + 2
+    if (parts[0]?.toLowerCase() !== 'var' || !parts[1]) continue
+    refs.push({
+      name: parts[1],
+      raw,
+      mode: parts[2] || null,
+      arguments: parts.slice(3).filter(Boolean),
+      start,
+      end: close + 2,
+    })
   }
 
   return refs

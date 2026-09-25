@@ -13,12 +13,12 @@ class WorkshopPreviewCoordinator {
   }
   async handle(message, userId) {
     if (message.type === "workshop:cancel-preview") {
-      const active2 = this.activeByUser.get(userId);
-      if (!active2)
+      const active = this.activeByUser.get(userId);
+      if (!active)
         return;
-      if (message.requestId && message.requestId !== active2.requestId)
+      if (message.requestId && message.requestId !== active.requestId)
         return;
-      active2.controller.abort();
+      active.controller.abort();
       this.activeByUser.delete(userId);
       return;
     }

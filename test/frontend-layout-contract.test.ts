@@ -4,10 +4,22 @@ import { readFileSync } from 'node:fs'
 const source = readFileSync(new URL('../src/frontend.ts', import.meta.url), 'utf8')
 
 describe('Workshop frontend layout contract', () => {
-  test('uses the host modal rather than a fullscreen float widget', () => {
+  test('uses the host modal but promotes its extension-owned modal surface to true fullscreen', () => {
     expect(source).toContain('ctx.ui.showModal({')
     expect(source).not.toContain('ctx.ui.createFloatWidget(')
-    expect(source).not.toContain("tooltip: 'Workshop'")
+    expect(source).toContain('function installFullscreenModalChrome(root: HTMLElement): () => void')
+    expect(source).toContain("alignItems: 'stretch', justifyContent: 'stretch'")
+    expect(source).toContain("width: '100%', maxWidth: 'none', height: '100%', maxHeight: 'none'")
+    expect(source).toContain("hostHeader.style.display = 'none'")
+    expect(source).toContain("height: 100%;\n  min-height: 0;")
+  })
+
+  test('uses one compact Workshop topbar with centered preset name and status actions', () => {
+    expect(source).toContain('grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) minmax(0, 1fr)')
+    expect(source).toContain('<span class="workshop-header-brand">Workshop</span>')
+    expect(source).toContain('<span class="workshop-preset-name"></span>')
+    expect(source).toContain('class="workshop-header-actions"')
+    expect(source).not.toContain('workshop-header-spacer')
   })
 
   test('keeps the launcher visible, stretches Loom toolbar hosts, and repairs the deferred host-mount race', () => {
@@ -21,11 +33,13 @@ describe('Workshop frontend layout contract', () => {
     expect(source).toContain('MAX_TOOLBAR_REPAIR_ATTEMPTS = 3')
   })
 
-  test('gives each rail ownership of its own collapse control', () => {
+  test('gives each rail ownership of its own collapse control and prompt category bulk controls', () => {
     expect(source).toContain('data-action="left" aria-label="Collapse prompts"')
     expect(source).toContain('data-action="right" aria-label="Collapse variables"')
-    expect(source).toContain("root.classList.toggle('left-collapsed')")
-    expect(source).toContain("root.classList.toggle('right-collapsed')")
+    expect(source).toContain('data-action="expand-categories"')
+    expect(source).toContain('data-action="collapse-categories"')
+    expect(source).toContain('collapsedCategories.clear()')
+    expect(source).toContain('if (group.categoryBlock) collapsedCategories.add(group.categoryBlock.id)')
   })
 
   test('bounds and enlarges the native Loom editor without stealing its scroll area', () => {
@@ -38,8 +52,8 @@ describe('Workshop frontend layout contract', () => {
 
   test('supports dual native Loom editors and restores variables beneath in dual mode', () => {
     expect(source).toContain('data-role="secondary-editor-mount"')
-    expect(source).toContain("ctx.components.mountLoomBlockEditor(secondaryEditorMount")
-    expect(source).toContain("setSecondaryBlock(block.id === secondaryBlockId ? null : block.id)")
+    expect(source).toContain('ctx.components.mountLoomBlockEditor(secondaryEditorMount')
+    expect(source).toContain('setSecondaryBlock(block.id === secondaryBlockId ? null : block.id)')
     expect(source).toContain('&& !secondaryBlockId')
     expect(source).toContain('decorateNativeMount(secondaryEditorMount, false)')
   })
@@ -63,15 +77,13 @@ describe('Workshop frontend layout contract', () => {
     expect(source).toContain('new ResizeObserver(scheduleNativeDecoration)')
   })
 
-
-  test('preserves pane and host scroll position when prompt selection rerenders Workshop', () => {
+  test('preserves prompt and variable-pane scroll state through rerenders and prompt selection', () => {
     expect(source).toContain('const previousScrollTop = promptList.scrollTop')
     expect(source).toContain('promptList.scrollTop = Math.min(previousScrollTop')
-    expect(source).toContain('const previousScrollTop = variableList.scrollTop')
-    expect(source).toContain('variableList.scrollTop = Math.min(previousScrollTop')
+    expect(source).toContain('const variablePaneScroll = new Map<string, number>()')
+    expect(source).toContain("variablePaneScroll.set(body.dataset.variablePaneBody ?? '', body.scrollTop)")
     expect(source).toContain('function preserveHostScrollThroughSelection(work: () => void): void')
     expect(source).toContain('preserveHostScrollThroughSelection(() => {')
-    expect(source).toContain('requestAnimationFrame(() => {')
   })
 
   test('renders real Loom categories and reserves edit actions for category headers', () => {
@@ -85,11 +97,30 @@ describe('Workshop frontend layout contract', () => {
     expect(source).toContain('.workshop-category-chevron svg { width: 13px; height: 13px; display: block; max-width: 13px; max-height: 13px; }')
   })
 
-  test('makes dry-run preview size draggable in bottom and side layouts', () => {
+  test('splits variable context into reduced detail/all/diagnostic panes with show-more expansion', () => {
+    expect(source).toContain('.workshop-variable-workspace { min-height: 0; display: grid; grid-template-rows: repeat(2, minmax(0, 1fr))')
+    expect(source).toContain('.workshop-variable-workspace.has-selection { grid-template-rows: repeat(3, minmax(0, 1fr)); }')
+    expect(source).toContain("id: 'detail' | 'all' | 'diagnostics'")
+    expect(source).toContain("toggle.textContent = expandedVariablePane === id ? 'Show sections' : 'Show more'")
+    expect(source).toContain("makePane('all', 'All variables'")
+    expect(source).toContain("makePane('diagnostics', 'Diagnostics'")
+  })
+
+  test('makes variable cards more scannable with label, reference count, macro, and owner hierarchy', () => {
+    expect(source).toContain('workshop-variable-card-head')
+    expect(source).toContain('workshop-variable-refcount')
+    expect(source).toContain('workshop-variable-macro')
+    expect(source).toContain('`Defined in ${primary.blockName}`')
+  })
+
+  test('makes dry-run preview draggable, searchable, and content-collapsible', () => {
     expect(source).toContain('data-resize="preview"')
+    expect(source).toContain('data-role="preview-search"')
+    expect(source).toContain('data-action="preview-entries-collapse"')
+    expect(source).toContain('previewQuery = previewSearch.value')
+    expect(source).toContain("previewElement.classList.toggle('entries-collapsed', previewEntriesCollapsed)")
     expect(source).toContain("root.style.setProperty('--wk-preview-width'")
     expect(source).toContain("root.style.setProperty('--wk-preview-height'")
-    expect(source).toContain('previewSplit && window.innerWidth > MOBILE_BREAKPOINT')
   })
 
   test('collapsing a side preview returns it to the bottom toolbar and stops assembly work', () => {
@@ -98,12 +129,5 @@ describe('Workshop frontend layout contract', () => {
     expect(source).toContain('if (destroyed || previewCollapsed) return')
     expect(source).toContain("type: 'workshop:cancel-preview'")
     expect(source).toContain('schedulePreview(true)')
-  })
-
-  test('fits the Workshop shell to the host modal body so the collapsed preview bar stays visible', () => {
-    expect(source).toContain('height: calc(100dvh - 120px)')
-    expect(source).toContain('function fitWorkshopHeightToModalBody(): void')
-    expect(source).toContain('body.clientHeight - paddingTop - paddingBottom')
-    expect(source).toContain('requestAnimationFrame(fitWorkshopHeightToModalBody)')
   })
 })
