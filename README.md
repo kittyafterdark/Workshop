@@ -6,6 +6,12 @@ Workshop is a fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.3.4 persistent Loom launcher mount
+
+- Replaces the registered preset-toolbar-item launcher bridge with Loom's canonical `ctx.ui.mount('preset_editor_toolbar')` host mount point. Spindle's mount service owns a persistent `MutationObserver` and automatically reattaches the same Workshop root whenever Loom swaps list/edit branches, so the launcher no longer depends on extension-load vs. host-paint ordering.
+- Removes the old bounded `setVisible(false) -> requestAnimationFrame -> setVisible(true)` repair loop entirely. There is no launcher-specific polling/retry state left in Workshop.
+- Keeps the launcher full-width by sizing the mount root itself rather than mutating whichever transient React toolbar wrapper happened to exist at the time.
+
 ## 0.3.3 prompt navigation polish
 
 - Makes `Stack` the default dry-run preview while keeping `Resolved` one click away.

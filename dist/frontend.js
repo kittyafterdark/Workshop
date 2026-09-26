@@ -279,6 +279,16 @@ var PREVIEW_HEIGHT_MIN = 120;
 var PREVIEW_WIDTH_MIN = 300;
 var PREVIEW_WIDTH_MAX = 760;
 var WORKSHOP_CSS = String.raw`
+.workshop-toolbar-root {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--lumiverse-border, rgba(255,255,255,.08));
+  flex: 0 0 auto;
+}
 .workshop-launcher {
   display: flex;
   align-items: center;
@@ -2102,83 +2112,10 @@ function createWorkshopSession(ctx, onClosed) {
 }
 function setup(ctx) {
   const removeStyle = ctx.dom.addStyle(WORKSHOP_CSS);
-  const toolbar = ctx.ui.registerPresetEditorToolbarItem({
-    id: "workshop-launcher",
-    ariaLabel: "Open Workshop"
-  });
+  const toolbarRoot = ctx.ui.mount("preset_editor_toolbar");
   const launcher = button("workshop-launcher", "Open Workshop", `${ICONS.workshop}<span>Workshop</span>`);
-  toolbar.root.style.display = "block";
-  toolbar.root.style.width = "100%";
-  toolbar.root.append(launcher);
-  toolbar.setVisible(true);
-  const styledToolbarHosts = new Map;
-  const fitToolbarHost = () => {
-    const host = toolbar.root.parentElement;
-    if (!(host instanceof HTMLElement))
-      return;
-    if (!styledToolbarHosts.has(host)) {
-      styledToolbarHosts.set(host, {
-        flex: host.style.flex,
-        width: host.style.width,
-        alignSelf: host.style.alignSelf
-      });
-    }
-    host.style.flex = "1 1 100%";
-    host.style.width = "100%";
-    host.style.alignSelf = "stretch";
-    toolbar.root.style.width = "100%";
-  };
-  let setupDestroyed = false;
-  let toolbarRepairTimer = null;
-  let toolbarReopenFrame = null;
-  let toolbarRepairAttempts = 0;
-  const MAX_TOOLBAR_REPAIR_ATTEMPTS = 3;
-  const scheduleToolbarRepair = () => {
-    if (setupDestroyed || toolbarRepairTimer !== null || toolbarReopenFrame !== null)
-      return;
-    toolbarRepairTimer = window.setTimeout(() => {
-      toolbarRepairTimer = null;
-      if (setupDestroyed)
-        return;
-      fitToolbarHost();
-      if (toolbar.root.isConnected) {
-        toolbarRepairAttempts = 0;
-        return;
-      }
-      let state;
-      try {
-        state = ctx.ui.presetEditor.getState();
-      } catch {
-        return;
-      }
-      if (!state.open || toolbarRepairAttempts >= MAX_TOOLBAR_REPAIR_ATTEMPTS)
-        return;
-      toolbarRepairAttempts += 1;
-      try {
-        toolbar.setVisible(false);
-      } catch {
-        return;
-      }
-      toolbarReopenFrame = requestAnimationFrame(() => {
-        toolbarReopenFrame = null;
-        if (setupDestroyed)
-          return;
-        try {
-          toolbar.setVisible(true);
-        } catch {
-          return;
-        }
-        scheduleToolbarRepair();
-      });
-    }, 80);
-  };
-  fitToolbarHost();
-  scheduleToolbarRepair();
-  const toolbarHostObserver = new MutationObserver(() => {
-    fitToolbarHost();
-    scheduleToolbarRepair();
-  });
-  toolbarHostObserver.observe(document.body, { childList: true, subtree: true });
+  toolbarRoot.classList.add("workshop-toolbar-root");
+  toolbarRoot.replaceChildren(launcher);
   let session = null;
   let opening = false;
   const open = () => {
@@ -2201,8 +2138,6 @@ function setup(ctx) {
   };
   launcher.addEventListener("click", open);
   const unsubscribe = ctx.ui.presetEditor.onChange((state) => {
-    fitToolbarHost();
-    scheduleToolbarRepair();
     if (session && (!state.open || !state.presetId || !state.preset)) {
       session.destroy(true).finally(() => {
         session = null;
@@ -2210,20 +2145,10 @@ function setup(ctx) {
     }
   });
   return () => {
-    setupDestroyed = true;
     launcher.removeEventListener("click", open);
     unsubscribe();
-    toolbarHostObserver.disconnect();
-    if (toolbarRepairTimer !== null)
-      window.clearTimeout(toolbarRepairTimer);
-    if (toolbarReopenFrame !== null)
-      cancelAnimationFrame(toolbarReopenFrame);
-    for (const [host, previous] of styledToolbarHosts) {
-      host.style.flex = previous.flex;
-      host.style.width = previous.width;
-      host.style.alignSelf = previous.alignSelf;
-    }
-    toolbar.destroy();
+    toolbarRoot.replaceChildren();
+    toolbarRoot.classList.remove("workshop-toolbar-root");
     removeStyle();
     const active = session;
     session = null;

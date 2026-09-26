@@ -1,6 +1,6 @@
-# Lumiverse Workshop v0.3.3 — Source Manifest
+# Lumiverse Workshop v0.3.4 — Source Manifest
 
-Cumulative editable source package. This patch defaults the dry run to Stack and refines prompt-category navigation with dedicated disclosure carets plus a single next-action Expand/Collapse All control, while retaining the 0.3.2 unsaved-draft guard.
+Cumulative editable source package. This patch replaces the flaky registered-toolbar launcher bridge with Loom's canonical persistent `preset_editor_toolbar` mount point, eliminating the base-editor registration race while retaining the 0.3.3 prompt-navigation polish and 0.3.2 unsaved-draft guard.
 
 ## Files
 
