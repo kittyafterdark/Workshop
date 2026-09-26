@@ -26,15 +26,16 @@ describe('Workshop frontend layout contract', () => {
     expect(source).not.toContain('workshop-header-spacer')
   })
 
-  test('keeps the launcher visible, stretches Loom toolbar hosts, and repairs the deferred host-mount race', () => {
-    expect(source).toContain('toolbar.setVisible(true)')
-    expect(source).toContain("toolbar.root.style.width = '100%'")
-    expect(source).toContain("host.style.flex = '1 1 100%'")
-    expect(source).toContain("host.style.width = '100%'")
-    expect(source).toContain('scheduleToolbarRepair()')
-    expect(source).toContain('if (toolbar.root.isConnected)')
-    expect(source).toContain('toolbar.setVisible(false)')
-    expect(source).toContain('MAX_TOOLBAR_REPAIR_ATTEMPTS = 3')
+  test("mounts the launcher through Loom's persistent preset toolbar mount point", () => {
+    expect(source).toContain("ctx.ui.mount('preset_editor_toolbar')")
+    expect(source).toContain('.workshop-toolbar-root {')
+    expect(source).toContain('flex: 0 0 auto;')
+    expect(source).toContain('min-height: 40px;')
+    expect(source).toContain('toolbarRoot.replaceChildren(launcher)')
+    expect(source).toContain('toolbarRoot.replaceChildren()')
+    expect(source).not.toContain('registerPresetEditorToolbarItem')
+    expect(source).not.toContain('scheduleToolbarRepair')
+    expect(source).not.toContain('MAX_TOOLBAR_REPAIR_ATTEMPTS')
   })
 
   test('gives each rail ownership of its own collapse control and uses one next-action category bulk control', () => {
