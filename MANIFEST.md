@@ -1,6 +1,6 @@
-# Lumiverse Workshop v0.3.6 — Source Manifest
+# Lumiverse Workshop v0.3.7 — Source Manifest
 
-Extension release with opaque mobile rails and a session-only prompt-variable sandbox for assembly preview, typed controls, reset actions, and stale-definition handling. Distribution bundles are included for the Extensions update workflow.
+Extension release with opaque mobile rails and a compact grouped mock form for session-only prompt-variable overrides. Includes typed controls, reset actions, search, the existing variable map, and stale-definition handling. Distribution bundles are included for the Extensions update workflow.
 
 ## Files
 

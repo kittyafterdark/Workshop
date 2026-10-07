@@ -6,6 +6,13 @@ Workshop is a fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.3.7 grouped mock form
+
+- Workshop opens the variable rail in a compact mock form: collapsible sections follow owning prompt order, with title + typed value controls and per-value reset actions.
+- Edit multiple mock values directly without opening individual detail cards. Section expansion and mock values survive navigation and host refreshes within the Workshop session.
+- Search expands matching sections temporarily; clearing it restores the chosen section state. Variable map remains available for topology, descriptions, and dependency navigation; clicking a form title opens its detail view.
+- The form and map share the same preview-only overrides. Neither changes saved values.
+
 ## 0.3.6 opaque mobile rails
 
 - Mobile prompt and variable drawers composite the theme's rail tint over a solid base, preventing editor/preview content from showing through translucent themes.

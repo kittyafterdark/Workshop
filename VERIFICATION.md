@@ -1,3 +1,8 @@
+# Workshop 0.3.7 verification
+
+- `bun run verify`: typecheck, 43 unit tests, and synchronized distribution build.
+- Controlled browser checks at desktop/mobile widths cover direct editing of all seven variable types, multiple owner groups in preset order, keyboard collapse, search expansion/restoration, empty results, form/map switching without duplicate controls, fresh host updates, reset, and close/reopen isolation.
+
 # Workshop 0.3.6 verification
 
 - Browser regression fixture uses a translucent rail theme and checks both mobile rails have a solid base beneath the theme tint. Desktop and mobile sandbox interaction checks remain covered.

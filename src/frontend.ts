@@ -323,6 +323,17 @@ const WORKSHOP_CSS = String.raw`
 .workshop-variable-owner { display: block; margin-top: 5px; color: var(--lumiverse-text-muted); font-size: 9px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workshop-section-label { margin: 13px 8px 5px; color: var(--lumiverse-text-dim); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .right-collapsed .workshop-rail.right [data-action="reset-mocks"] { display: none; }
+.workshop-mock-note { margin: 3px 5px 9px; }
+.workshop-mock-group { margin: 5px 0 9px; border: 1px solid var(--lumiverse-border, #333); border-radius: 7px; overflow: hidden; }
+.workshop-mock-group > summary { display: flex; align-items: center; gap: 8px; padding: 10px 8px; cursor: pointer; font-size: 11px; font-weight: 700; }
+.workshop-mock-group > summary::before { content: '›'; flex: 0 0 auto; }
+.workshop-mock-group[open] > summary::before { content: '⌄'; }
+.workshop-mock-group > summary > span:first-of-type { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.workshop-mock-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: center; gap: 8px; padding: 8px; border-top: 1px solid var(--lumiverse-border, #333); }
+.workshop-mock-title { padding: 0; border: 0; background: none; color: var(--lumiverse-text); font: inherit; font-size: 11px; text-align: left; line-height: 1.4; overflow-wrap: anywhere; cursor: pointer; }
+.workshop-mock-row .workshop-sandbox { margin: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.workshop-mock-current { font-size: 10px; color: var(--lumiverse-text-muted); }
+.workshop-mock-row textarea, .workshop-mock-row select[multiple] { grid-column: 1 / -1; }
 .workshop-sandbox { display: grid; gap: 7px; margin: 12px 0 7px; font-size: 11px; }
 .workshop-sandbox input:not([type="checkbox"]), .workshop-sandbox textarea, .workshop-sandbox select { box-sizing: border-box; width: 100%; min-width: 0; padding: 6px; color: var(--lumiverse-text); background: var(--lumiverse-bg-deep, #101014); border: 1px solid var(--lumiverse-border); border-radius: 5px; font: inherit; }
 .workshop-sandbox input[type="checkbox"] { justify-self: start; }
@@ -649,12 +660,14 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   let selectedVariableName: string | null = null
   let promptQuery = ''
   let variableQuery = ''
+  let sandboxFormMode = true
+  const openVariableGroups = new Set<string>()
   let previewTab: 'resolved' | 'stack' = 'stack'
   let previewQuery = ''
   let previewEntriesCollapsed = false
   let previewCollapsed = false
   let previewSplit = false
-  let expandedVariablePane: 'detail' | 'all' | 'diagnostics' | null = null
+  let expandedVariablePane: 'detail' | 'all' | 'diagnostics' | null = 'all'
   let previewTimer: ReturnType<typeof setTimeout> | null = null
   let previewSequence = 0
   let activePreviewRequestId: string | null = null
@@ -1011,12 +1024,12 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   }
 
   function refreshSandbox(): void {
-    const activeLabel = document.activeElement?.getAttribute('aria-label')
+    const activeVariable = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.mockVariable : undefined
     recomputeDerived()
     renderVariables()
-    if (activeLabel) {
-      const replacement = [...root.querySelectorAll<HTMLElement>('.workshop-sandbox [aria-label]')]
-        .find((element) => element.getAttribute('aria-label') === activeLabel)
+    if (activeVariable) {
+      const replacement = [...root.querySelectorAll<HTMLElement>('[data-mock-variable]')]
+        .find((element) => element.dataset.mockVariable === activeVariable)
       replacement?.focus({ preventScroll: true })
     }
     schedulePreview()
@@ -1027,12 +1040,12 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     refreshSandbox()
   })
 
-  function appendSandboxControl(detail: HTMLElement, entry: VariableIndexEntry): void {
-    const label = document.createElement('label')
+  function appendSandboxControl(detail: HTMLElement, entry: VariableIndexEntry, compact = false): void {
+    const label = document.createElement(compact ? 'div' : 'label')
     label.className = 'workshop-sandbox'
     const title = document.createElement('span')
     title.textContent = 'Mock value · preview only'
-    label.append(title)
+    if (!compact) label.append(title)
     const primary = entry.definitions[0]
     const definition = primary.definition
     if (entry.duplicateDefinition || variableIndex().duplicateBlockIds.includes(primary.blockId)) {
@@ -1068,17 +1081,18 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       const input = document.createElement('input')
       input.type = definition.type === 'switch' ? 'checkbox'
         : definition.type === 'slider' ? 'range' : definition.type === 'number' ? 'number' : 'text'
-      input.value = String(value)
       input.checked = value === 1 || value === '1'
       if (definition.type === 'number' || definition.type === 'slider') {
         if (definition.min !== undefined) input.min = String(definition.min)
         if (definition.max !== undefined) input.max = String(definition.max)
         input.step = String(definition.step ?? (definition.type === 'slider' ? 1 : 'any'))
       }
+      input.value = String(value)
       control = input
       read = () => input.type === 'checkbox' ? Number(input.checked)
         : input.type === 'number' || input.type === 'range' ? input.valueAsNumber : input.value
     }
+    control.dataset.mockVariable = entry.name
     control.setAttribute('aria-label', `Mock ${definition.label || entry.name}`)
     control.addEventListener('change', () => {
       if (!control.checkValidity()) { control.reportValidity(); return }
@@ -1093,10 +1107,20 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     const reset = document.createElement('button')
     reset.type = 'button'
     reset.className = 'workshop-text-button'
-    reset.textContent = 'Reset mock'
+    reset.textContent = compact ? '↶' : 'Reset mock'
+    reset.setAttribute('aria-label', compact ? `Reset mock ${definition.label || entry.name}` : 'Reset mock')
+    reset.title = 'Reset mock'
     reset.disabled = !variableSandbox.has(entry.name)
     reset.addEventListener('click', () => { variableSandbox.reset(entry.name); refreshSandbox() })
-    detail.append(resolved, reset)
+    if (compact) {
+      if (variableSandbox.has(entry.name)) label.append(reset)
+      if (definition.type === 'switch' || definition.type === 'slider') {
+        const valueLabel = document.createElement('span')
+        valueLabel.className = 'workshop-mock-current'
+        valueLabel.textContent = described.display
+        label.append(valueLabel)
+      }
+    } else detail.append(resolved, reset)
   }
 
   function appendDefinitionDetail(container: HTMLElement, entry: VariableIndexEntry): void {
@@ -1159,7 +1183,15 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       grid.append(k, v)
     }
     detail.append(grid)
-    appendSandboxControl(detail, entry)
+    if (!sandboxFormMode) appendSandboxControl(detail, entry)
+    else {
+      const values = variableSandbox.overlay(effectiveValue().blocks, effectiveValue().promptVariableValues)
+      const mockValue = values[primary.blockId]?.[entry.name] ?? primary.storedValue
+      const summary = document.createElement('div')
+      summary.className = 'workshop-description'
+      summary.textContent = `Preview value: ${describePromptVariableValue(primary.definition, mockValue).display}`
+      detail.append(summary)
+    }
 
     if (primary.definition.description) {
       const description = document.createElement('div')
@@ -1322,7 +1354,16 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
         expandedVariablePane = expandedVariablePane === id ? null : id
         renderVariables()
       })
-      header.append(heading, badge, toggle)
+      header.append(heading, badge)
+      if (id === 'all') {
+        const mode = document.createElement('button')
+        mode.type = 'button'
+        mode.className = 'workshop-variable-pane-toggle'
+        mode.textContent = sandboxFormMode ? 'Variable map' : 'Mock values'
+        mode.addEventListener('click', () => { sandboxFormMode = !sandboxFormMode; renderVariables() })
+        header.append(mode)
+      }
+      header.append(toggle)
       const body = document.createElement('div')
       body.className = 'workshop-variable-pane-body'
       body.dataset.variablePaneBody = id
@@ -1358,57 +1399,123 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     })
 
     const allPane = makePane('all', 'All variables', visibleEntries.length)
-    const appendCards = (title: string, entries: VariableIndexEntry[]) => {
-      if (entries.length === 0) return
-      if (title) {
-        const section = document.createElement('div')
-        section.className = 'workshop-section-label'
-        section.textContent = title
+    if (sandboxFormMode) {
+      const note = document.createElement('div')
+      note.className = 'workshop-description workshop-mock-note'
+      note.textContent = 'Mock values · preview only'
+      allPane.body.append(note)
+      const groups = new Map<string, VariableIndexEntry[]>()
+      const visibleNames = new Set(visibleEntries.map((entry) => entry.name))
+      for (const block of effectiveValue().blocks) {
+        for (const definition of block.variables ?? []) {
+          const entry = index.byName.get(definition.name)
+          if (!entry || !visibleNames.has(entry.name) || entry.definitions[0]?.blockId !== block.id) continue
+          const entries = groups.get(block.id) ?? []
+          if (!entries.some((item) => item.name === entry.name)) entries.push(entry)
+          groups.set(block.id, entries)
+        }
+      }
+      for (const [blockId, entries] of groups) {
+        const section = document.createElement('details')
+        section.className = 'workshop-mock-group'
+        section.dataset.variableGroup = blockId
+        section.open = Boolean(query) || openVariableGroups.has(blockId)
+        const summary = document.createElement('summary')
+        const title = document.createElement('span')
+        title.textContent = entries[0].definitions[0].blockName
+        const count = document.createElement('span')
+        count.className = 'workshop-variable-refcount'
+        count.textContent = `${entries.length} variable${entries.length === 1 ? '' : 's'}`
+        summary.append(title, count)
+        section.append(summary)
+        summary.addEventListener('click', () => {
+          if (query) return
+          // Capture the user's next state before native toggle is dispatched asynchronously.
+          if (section.open) openVariableGroups.delete(blockId)
+          else openVariableGroups.add(blockId)
+        })
+        for (const entry of entries) {
+          const row = document.createElement('div')
+          row.className = 'workshop-mock-row'
+          row.dataset.variableName = entry.name
+          const label = document.createElement('button')
+          label.type = 'button'
+          label.className = 'workshop-mock-title'
+          label.textContent = `${entry.definitions[0].definition.label || entry.name}${variableSandbox.has(entry.name) ? ' · Mock' : ''}`
+          label.setAttribute('aria-label', `Inspect ${entry.definitions[0].definition.label || entry.name}`)
+          label.title = 'View definition and dependencies'
+          label.addEventListener('click', () => {
+            selectedVariableName = selectedVariableName === entry.name ? null : entry.name
+            expandedVariablePane = null
+            renderVariables()
+            renderPrompts()
+          })
+          row.append(label)
+          appendSandboxControl(row, entry, true)
+          section.append(row)
+        }
         allPane.body.append(section)
       }
-      for (const entry of entries) {
-        const primary = entry.definitions[0]
-        const refCount = entry.references.reduce((sum, ref) => sum + ref.count, 0)
-        const card = document.createElement('button')
-        card.type = 'button'
-        card.className = 'workshop-variable-card'
-        if (entry.name === selectedVariableName) card.classList.add('selected')
-
-        const head = document.createElement('span')
-        head.className = 'workshop-variable-card-head'
-        const label = document.createElement('span')
-        label.className = 'workshop-variable-label'
-        label.textContent = `${primary?.definition.label || entry.name}${variableSandbox.has(entry.name) ? ' · Mock' : ''}`
-        const refs = document.createElement('span')
-        refs.className = 'workshop-variable-refcount'
-        refs.textContent = `${refCount} ref${refCount === 1 ? '' : 's'}`
-        head.append(label, refs)
-
-        const macro = document.createElement('span')
-        macro.className = 'workshop-variable-macro'
-        macro.textContent = entry.macro
-        const owner = document.createElement('span')
-        owner.className = 'workshop-variable-owner'
-        owner.textContent = primary
-          ? entry.definitions.length > 1
-            ? `Defined in ${entry.definitions.length} prompts`
-            : `Defined in ${primary.blockName}`
-          : 'Missing definition'
-        card.append(head, macro, owner)
-        card.addEventListener('click', () => {
-          selectedVariableName = selectedVariableName === entry.name ? null : entry.name
-          expandedVariablePane = null
-          renderVariables()
-          renderPrompts()
-        })
-        allPane.body.append(card)
+      if (groups.size === 0) {
+        const empty = document.createElement('div')
+        empty.className = 'workshop-description'
+        empty.textContent = query ? 'No variables match this search.' : 'No variables are defined in this preset.'
+        allPane.body.append(empty)
       }
-    }
+    } else {
 
-    const contextual = visibleEntries.filter((entry) => currentNames.has(entry.name))
-    const contextualNames = new Set(contextual.map((entry) => entry.name))
-    appendCards(current ? 'This prompt' : '', contextual)
-    appendCards(current ? 'Everything else' : '', visibleEntries.filter((entry) => !contextualNames.has(entry.name)))
+      const appendCards = (title: string, entries: VariableIndexEntry[]) => {
+        if (entries.length === 0) return
+        if (title) {
+          const section = document.createElement('div')
+          section.className = 'workshop-section-label'
+          section.textContent = title
+          allPane.body.append(section)
+        }
+        for (const entry of entries) {
+          const primary = entry.definitions[0]
+          const refCount = entry.references.reduce((sum, ref) => sum + ref.count, 0)
+          const card = document.createElement('button')
+          card.type = 'button'
+          card.className = 'workshop-variable-card'
+          if (entry.name === selectedVariableName) card.classList.add('selected')
+
+          const head = document.createElement('span')
+          head.className = 'workshop-variable-card-head'
+          const label = document.createElement('span')
+          label.className = 'workshop-variable-label'
+          label.textContent = `${primary?.definition.label || entry.name}${variableSandbox.has(entry.name) ? ' · Mock' : ''}`
+          const refs = document.createElement('span')
+          refs.className = 'workshop-variable-refcount'
+          refs.textContent = `${refCount} ref${refCount === 1 ? '' : 's'}`
+          head.append(label, refs)
+
+          const macro = document.createElement('span')
+          macro.className = 'workshop-variable-macro'
+          macro.textContent = entry.macro
+          const owner = document.createElement('span')
+          owner.className = 'workshop-variable-owner'
+          owner.textContent = primary
+            ? entry.definitions.length > 1
+              ? `Defined in ${entry.definitions.length} prompts`
+              : `Defined in ${primary.blockName}`
+            : 'Missing definition'
+          card.append(head, macro, owner)
+          card.addEventListener('click', () => {
+            selectedVariableName = selectedVariableName === entry.name ? null : entry.name
+            expandedVariablePane = null
+            renderVariables()
+            renderPrompts()
+          })
+          allPane.body.append(card)
+        }
+      }
+
+      const contextual = visibleEntries.filter((entry) => currentNames.has(entry.name))
+      const contextualNames = new Set(contextual.map((entry) => entry.name))
+      appendCards(current ? 'This prompt' : '', contextual)
+      appendCards(current ? 'Everything else' : '', visibleEntries.filter((entry) => !contextualNames.has(entry.name)))
+    }
 
     const diagnosticsPane = makePane('diagnostics', 'Diagnostics', diagnosticCount(index))
     renderDiagnostics(diagnosticsPane.body, index)
