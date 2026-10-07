@@ -1,3 +1,8 @@
+# Workshop 0.3.9 verification
+
+- `bun run verify`: typecheck, 43 unit tests, and synchronized distribution build.
+- Desktop/mobile browser fixture verifies full-width values beneath the name/reset header, slider numbers beside their tracks, and stable control positions across edits/reset. Existing keyboard and write-isolation checks remain covered.
+
 # Workshop 0.3.8 verification
 
 - `bun run verify`: typecheck, 43 unit tests, and synchronized distribution build.

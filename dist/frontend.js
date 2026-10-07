@@ -632,14 +632,15 @@ var WORKSHOP_CSS = String.raw`
 .workshop-mock-group > summary::before { content: '›'; flex: 0 0 auto; }
 .workshop-mock-group[open] > summary::before { content: '⌄'; }
 .workshop-mock-group > summary > span:first-of-type { min-width: 0; flex: 1; overflow-wrap: anywhere; }
-.workshop-mock-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: center; gap: 8px; padding: 8px; border-top: 1px solid var(--lumiverse-border, #333); }
-.workshop-mock-title { padding: 0; border: 0; background: none; color: var(--lumiverse-text); font: inherit; font-size: 11px; text-align: left; line-height: 1.4; overflow-wrap: anywhere; cursor: pointer; }
-.workshop-mock-row .workshop-sandbox { margin: 0; grid-template-columns: minmax(0, 1fr) 28px; align-items: center; }
+.workshop-mock-row { display: grid; grid-template-columns: minmax(0, 1fr) 28px; align-items: center; gap: 8px; padding: 8px; border-top: 1px solid var(--lumiverse-border, #333); }
+.workshop-mock-title { grid-area: 1 / 1; min-height: 28px; padding: 0; border: 0; background: none; color: var(--lumiverse-text); font: inherit; font-size: 11px; text-align: left; line-height: 1.4; overflow-wrap: anywhere; cursor: pointer; }
+.workshop-mock-row .workshop-sandbox { grid-area: 2 / 1 / 3 / -1; margin: 0; grid-template-columns: minmax(0, 1fr); align-items: center; }
+.workshop-mock-row .workshop-sandbox:has(input[type="range"]) { grid-template-columns: minmax(0, 1fr) 4ch; }
+.workshop-mock-row .workshop-sandbox:has(input[role="switch"]) { grid-template-columns: 38px minmax(0, 1fr); }
 .workshop-mock-row .workshop-sandbox > input, .workshop-mock-row .workshop-sandbox > textarea, .workshop-mock-row .workshop-sandbox > select { grid-area: 1 / 1; }
-.workshop-mock-row .workshop-sandbox > button { grid-area: 1 / 2; width: 28px; }
-.workshop-mock-row .workshop-sandbox > button:disabled { visibility: hidden; }
-.workshop-mock-current { grid-area: 2 / 1; font-size: 10px; color: var(--lumiverse-text-muted); }
-.workshop-sandbox:has(input[role="switch"]) .workshop-mock-current { grid-area: 1 / 1; padding-left: 46px; pointer-events: none; }
+.workshop-mock-row > .workshop-text-button { grid-area: 1 / 2; width: 28px; height: 28px; min-height: 28px; padding: 0; }
+.workshop-mock-row > .workshop-text-button:disabled { visibility: hidden; }
+.workshop-mock-current { grid-area: 1 / 2; font-size: 10px; color: var(--lumiverse-text-muted); font-variant-numeric: tabular-nums; }
 .workshop-sandbox { display: grid; gap: 7px; margin: 12px 0 7px; font-size: 11px; }
 .workshop-sandbox input:not([type="checkbox"]), .workshop-sandbox textarea, .workshop-sandbox select { box-sizing: border-box; width: 100%; min-width: 0; padding: 6px; color: var(--lumiverse-text); background: var(--lumiverse-bg-deep, #101014); border: 1px solid var(--lumiverse-border); border-radius: 5px; font: inherit; }
 .workshop-sandbox input[role="switch"] { appearance: none; box-sizing: border-box; justify-self: start; width: 38px; height: 22px; margin: 0; padding: 2px; border: 1px solid var(--lumiverse-border, #555); border-radius: 999px; background: var(--lumiverse-bg-deep, #101014); cursor: pointer; transition: background .15s; }
@@ -1402,7 +1403,7 @@ function createWorkshopSession(ctx, onClosed) {
       refreshSandbox();
     });
     if (compact) {
-      label.append(reset);
+      detail.append(reset);
       if (definition.type === "switch" || definition.type === "slider") {
         const valueLabel = document.createElement("span");
         valueLabel.className = "workshop-mock-current";
