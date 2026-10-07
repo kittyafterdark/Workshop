@@ -6,6 +6,11 @@ Workshop is a fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.3.8 mock control polish
+
+- Boolean mock values use themed switches with keyboard focus and On/Off labels.
+- Revert controls reserve their own slot so mock edits and resets keep values in place.
+
 ## 0.3.7 grouped mock form
 
 - Workshop opens the variable rail in a compact mock form: collapsible sections follow owning prompt order, with title + typed value controls and per-value reset actions.

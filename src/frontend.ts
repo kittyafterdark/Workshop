@@ -331,12 +331,19 @@ const WORKSHOP_CSS = String.raw`
 .workshop-mock-group > summary > span:first-of-type { min-width: 0; flex: 1; overflow-wrap: anywhere; }
 .workshop-mock-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: center; gap: 8px; padding: 8px; border-top: 1px solid var(--lumiverse-border, #333); }
 .workshop-mock-title { padding: 0; border: 0; background: none; color: var(--lumiverse-text); font: inherit; font-size: 11px; text-align: left; line-height: 1.4; overflow-wrap: anywhere; cursor: pointer; }
-.workshop-mock-row .workshop-sandbox { margin: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
-.workshop-mock-current { font-size: 10px; color: var(--lumiverse-text-muted); }
-.workshop-mock-row textarea, .workshop-mock-row select[multiple] { grid-column: 1 / -1; }
+.workshop-mock-row .workshop-sandbox { margin: 0; grid-template-columns: minmax(0, 1fr) 28px; align-items: center; }
+.workshop-mock-row .workshop-sandbox > input, .workshop-mock-row .workshop-sandbox > textarea, .workshop-mock-row .workshop-sandbox > select { grid-area: 1 / 1; }
+.workshop-mock-row .workshop-sandbox > button { grid-area: 1 / 2; width: 28px; }
+.workshop-mock-row .workshop-sandbox > button:disabled { visibility: hidden; }
+.workshop-mock-current { grid-area: 2 / 1; font-size: 10px; color: var(--lumiverse-text-muted); }
+.workshop-sandbox:has(input[role="switch"]) .workshop-mock-current { grid-area: 1 / 1; padding-left: 46px; pointer-events: none; }
 .workshop-sandbox { display: grid; gap: 7px; margin: 12px 0 7px; font-size: 11px; }
 .workshop-sandbox input:not([type="checkbox"]), .workshop-sandbox textarea, .workshop-sandbox select { box-sizing: border-box; width: 100%; min-width: 0; padding: 6px; color: var(--lumiverse-text); background: var(--lumiverse-bg-deep, #101014); border: 1px solid var(--lumiverse-border); border-radius: 5px; font: inherit; }
-.workshop-sandbox input[type="checkbox"] { justify-self: start; }
+.workshop-sandbox input[role="switch"] { appearance: none; box-sizing: border-box; justify-self: start; width: 38px; height: 22px; margin: 0; padding: 2px; border: 1px solid var(--lumiverse-border, #555); border-radius: 999px; background: var(--lumiverse-bg-deep, #101014); cursor: pointer; transition: background .15s; }
+.workshop-sandbox input[role="switch"]::before { content: ""; display: block; width: 16px; height: 16px; border-radius: 50%; background: var(--lumiverse-text-muted, #aaa); transition: transform .15s; }
+.workshop-sandbox input[role="switch"]:checked { background: var(--lumiverse-primary, #aa88ef); }
+.workshop-sandbox input[role="switch"]:checked::before { transform: translateX(16px); background: var(--lumiverse-text, #fff); }
+.workshop-sandbox input[role="switch"]:focus-visible { outline: 2px solid var(--lumiverse-primary, #aa88ef); outline-offset: 3px; }
 .workshop-sandbox select[multiple] { min-height: 80px; }
 .workshop-variable-detail { margin: 3px 2px 10px; padding: 10px; border: 1px solid var(--lumiverse-border, rgba(255,255,255,.09)); border-radius: 10px; background: var(--lumiverse-bg-deep, #101014); }
 .workshop-detail-heading { font-size: 12px; font-weight: 750; margin-bottom: 4px; }
@@ -1081,6 +1088,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       const input = document.createElement('input')
       input.type = definition.type === 'switch' ? 'checkbox'
         : definition.type === 'slider' ? 'range' : definition.type === 'number' ? 'number' : 'text'
+      if (definition.type === 'switch') input.setAttribute('role', 'switch')
       input.checked = value === 1 || value === '1'
       if (definition.type === 'number' || definition.type === 'slider') {
         if (definition.min !== undefined) input.min = String(definition.min)
@@ -1113,7 +1121,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     reset.disabled = !variableSandbox.has(entry.name)
     reset.addEventListener('click', () => { variableSandbox.reset(entry.name); refreshSandbox() })
     if (compact) {
-      if (variableSandbox.has(entry.name)) label.append(reset)
+      label.append(reset)
       if (definition.type === 'switch' || definition.type === 'slider') {
         const valueLabel = document.createElement('span')
         valueLabel.className = 'workshop-mock-current'

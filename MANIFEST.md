@@ -1,4 +1,4 @@
-# Lumiverse Workshop v0.3.7 — Source Manifest
+# Lumiverse Workshop v0.3.8 — Source Manifest
 
 Extension release with opaque mobile rails and a compact grouped mock form for session-only prompt-variable overrides. Includes typed controls, reset actions, search, the existing variable map, and stale-definition handling. Distribution bundles are included for the Extensions update workflow.
 

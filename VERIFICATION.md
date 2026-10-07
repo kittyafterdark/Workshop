@@ -1,3 +1,8 @@
+# Workshop 0.3.8 verification
+
+- `bun run verify`: typecheck, 43 unit tests, and synchronized distribution build.
+- Desktop/mobile browser fixture verifies switch semantics, Space toggling, and unchanged switch, value-label, and slider positions when overrides activate. Existing editing/reset/isolation checks remain covered.
+
 # Workshop 0.3.7 verification
 
 - `bun run verify`: typecheck, 43 unit tests, and synchronized distribution build.
