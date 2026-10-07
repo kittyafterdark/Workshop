@@ -6,6 +6,13 @@ Workshop is a fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.5.0 unsynced editing
+
+- The variable rail starts in sections view so All variables and Diagnostics are both visible.
+- Normal Loom Save now retains a prompt locally. Navigation retains valid in-progress drafts, including both editors when a secondary prompt is promoted. Dry run and Diagnostics use the local graph.
+- Ordinary edits and issue review share one draft batch. Apply (count) writes it together; the count is distinct changed prompts. External changes to a touched prompt block the batch. Discard drafts returns to the latest host preset, and closing Workshop warns before losing local edits.
+- Drafts are temporary and scoped to the open Workshop session.
+
 ## 0.4.0 issue review
 
 - Review issues beside Diagnostics opens the native Loom prompt editor with Previous/Next stops for unknown variables, duplicate definitions, unused-variable warnings, and ambiguous block IDs.

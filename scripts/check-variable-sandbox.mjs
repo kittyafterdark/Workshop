@@ -78,7 +78,8 @@ try {
     }
     if (width < 900) await page.getByRole('button', { name: 'Open variables', exact: true }).click()
     const formPane = page.locator('[data-variable-pane="all"]')
-    assert.equal(await formPane.getByRole('button', { name: 'Show sections', exact: true }).isVisible(), true)
+    assert.equal(await page.locator('[data-variable-pane="diagnostics"]').isVisible(), true)
+    await formPane.getByRole('button', { name: 'Show more', exact: true }).click()
     assert.equal(await page.locator('.workshop-mock-group').count(), 2)
     assert.equal(await page.locator('.workshop-mock-group summary').first().textContent(), 'Controls7 variables')
     assert.equal(await page.getByLabel('Mock Extra', { exact: true }).isVisible(), false)

@@ -368,6 +368,9 @@ class WorkshopIssueReview {
   get size() {
     return this.patches.size;
   }
+  get blockIds() {
+    return [...this.patches.keys()];
+  }
   clear() {
     this.patches.clear();
   }
@@ -481,6 +484,10 @@ var WORKSHOP_CSS = String.raw`
 .workshop-header-left,
 .workshop-header-actions { min-width: 0; display: flex; align-items: center; gap: 7px; }
 .workshop-header-actions { justify-content: flex-end; }
+.workshop-shell.has-unsynced .workshop-header { grid-template-columns: auto minmax(0, 1fr) auto; }
+.workshop-shell:not(.has-unsynced) [data-action="apply-drafts"], .workshop-shell:not(.has-unsynced) [data-action="discard-drafts"] { display: none; }
+.workshop-shell.has-draft-error { grid-template-rows: 40px auto minmax(0, 1fr); }
+.workshop-draft-error { padding: 8px 12px; color: var(--lumiverse-warning, #e8b04c); font-size: 11px; }
 .workshop-header-brand { font-size: 12px; font-weight: 800; white-space: nowrap; }
 .workshop-preset-name {
   min-width: 0;
@@ -952,10 +959,13 @@ function createWorkshopSession(ctx, onClosed) {
       <span class="workshop-preset-name"></span>
       <div class="workshop-header-actions">
         <div class="workshop-header-status"><span class="workshop-dot"></span><span class="workshop-status-copy">Synced</span></div>
+        <button class="workshop-text-button" type="button" data-action="apply-drafts" disabled>Apply</button>
+        <button class="workshop-mini-button" type="button" data-action="discard-drafts" aria-label="Discard drafts" title="Discard all local prompt drafts" disabled>↶</button>
         <button class="workshop-icon-button workshop-mobile-only" type="button" data-action="mobile-right" aria-label="Open variables">${ICONS.left}</button>
         <button class="workshop-icon-button" type="button" data-action="close" aria-label="Close Workshop">${ICONS.close}</button>
       </div>
     </header>
+    <div class="workshop-draft-error" data-role="draft-notice" role="alert" hidden></div>
     <div class="workshop-body">
       <aside class="workshop-rail left">
         <div class="workshop-rail-header">
@@ -1048,6 +1058,9 @@ function createWorkshopSession(ctx, onClosed) {
   const variableSandbox = new WorkshopVariableSandbox;
   let destroyed = false;
   let canonicalValue = initialValue;
+  let primaryEditorBase = initialValue.blocks;
+  let secondaryEditorBase = initialValue.blocks;
+  let applyingDrafts = false;
   let primaryDraftValue = null;
   let secondaryDraftValue = null;
   let selectedBlockId = null;
@@ -1062,7 +1075,7 @@ function createWorkshopSession(ctx, onClosed) {
   let previewEntriesCollapsed = false;
   let previewCollapsed = false;
   let previewSplit = false;
-  let expandedVariablePane = "all";
+  let expandedVariablePane = null;
   let previewTimer = null;
   let previewSequence = 0;
   let activePreviewRequestId = null;
@@ -1082,7 +1095,7 @@ function createWorkshopSession(ctx, onClosed) {
   let editor;
   let secondaryEditor;
   function recomputeDerived() {
-    derivedValue = overlaySelectedDrafts(canonicalValue, [
+    derivedValue = overlaySelectedDrafts(localValue(), [
       { selectedBlockId, value: primaryDraftValue },
       { selectedBlockId: secondaryBlockId, value: secondaryDraftValue }
     ]);
@@ -1091,6 +1104,9 @@ function createWorkshopSession(ctx, onClosed) {
     const resetMocks = root.querySelector('[data-action="reset-mocks"]');
     resetMocks.disabled = variableSandbox.size === 0;
     resetMocks.textContent = variableSandbox.size ? `Reset mocks (${variableSandbox.size})` : "Reset mocks";
+  }
+  function localValue() {
+    return { blocks: issueReview.overlay(canonicalValue.blocks), promptVariableValues: canonicalValue.promptVariableValues };
   }
   function effectiveValue() {
     return derivedValue;
@@ -1110,9 +1126,14 @@ function createWorkshopSession(ctx, onClosed) {
     return blockById(secondaryBlockId);
   }
   function setDraftStatus() {
-    const draftCount = Number(primaryDraftValue !== null) + Number(secondaryDraftValue !== null) + issueReview.size;
+    const draftCount = new Set([...issueReview.blockIds, ...primaryDraftValue && selectedBlockId ? [selectedBlockId] : [], ...secondaryDraftValue && secondaryBlockId ? [secondaryBlockId] : []]).size;
+    root.classList.toggle("has-unsynced", draftCount > 0);
+    const apply = root.querySelector('[data-action="apply-drafts"]');
+    apply.textContent = `Apply (${draftCount})`;
+    apply.disabled = draftCount === 0 || applyingDrafts;
+    root.querySelector('[data-action="discard-drafts"]').disabled = draftCount === 0 || applyingDrafts;
     statusDot.classList.toggle("is-draft", draftCount > 0);
-    statusCopy.textContent = draftCount === 0 ? "Synced" : draftCount === 1 ? "1 unsaved prompt draft" : `${draftCount} unsaved prompt drafts`;
+    statusCopy.textContent = draftCount === 0 ? "Synced" : draftCount === 1 ? "1 unsynced prompt" : `${draftCount} unsynced prompts`;
   }
   function closeMobileRails() {
     root.classList.remove("mobile-left-open", "mobile-right-open");
@@ -1152,32 +1173,21 @@ function createWorkshopSession(ctx, onClosed) {
       });
     });
   }
-  let discardNavigationConfirmOpen = false;
-  function blockForDraftSlot(slot) {
-    return slot === "primary" ? selectedBlock() : secondaryBlock();
-  }
-  async function confirmDraftDiscard(slots) {
-    const uniqueSlots = [...new Set(slots)];
-    if (uniqueSlots.length === 0)
-      return true;
-    if (discardNavigationConfirmOpen)
-      return false;
-    const dirtyBlocks = uniqueSlots.map(blockForDraftSlot).filter((block) => block !== null);
-    if (dirtyBlocks.length === 0)
-      return true;
-    discardNavigationConfirmOpen = true;
-    try {
-      const names = dirtyBlocks.map((block) => block.name || block.id).join(", ");
-      const result = await ctx.ui.showConfirm({
-        title: "Discard unsaved prompt edits?",
-        message: `${names} ${dirtyBlocks.length > 1 ? "have" : "has"} edits that have not been saved. Leave ${dirtyBlocks.length > 1 ? "these prompts" : "this prompt"} and discard the changes?`,
-        variant: "warning",
-        confirmLabel: "Discard changes"
-      });
-      return result.confirmed;
-    } finally {
-      discardNavigationConfirmOpen = false;
+  function retainEditorDrafts(slots) {
+    for (const slot of new Set(slots)) {
+      const value = slot === "primary" ? primaryDraftValue : secondaryDraftValue;
+      const id = slot === "primary" ? selectedBlockId : secondaryBlockId;
+      const base = slot === "primary" ? primaryEditorBase : secondaryEditorBase;
+      if (value && id && !issueReview.stage(base, value.blocks, id)) {
+        reportWriteFailure(id, "ambiguous local draft");
+        return false;
+      }
+      if (slot === "primary")
+        primaryDraftValue = null;
+      else
+        secondaryDraftValue = null;
     }
+    return true;
   }
   function applySelectedBlock(blockId) {
     if (blockId === selectedBlockId)
@@ -1190,8 +1200,9 @@ function createWorkshopSession(ctx, onClosed) {
       }
       primaryDraftValue = null;
       selectedBlockId = blockId;
+      primaryEditorBase = canonicalValue.blocks;
       recomputeDerived();
-      editor.update({ selectedBlockId: blockId });
+      editor.update({ value: localValue(), selectedBlockId: blockId });
       renderEditorVisibility();
       renderPrompts();
       renderVariables();
@@ -1212,7 +1223,7 @@ function createWorkshopSession(ctx, onClosed) {
       primaryDirty: primaryDraftValue !== null,
       secondaryDirty: secondaryDraftValue !== null
     }, "primary", blockId);
-    if (!await confirmDraftDiscard(discarded))
+    if (!retainEditorDrafts(discarded))
       return;
     applySelectedBlock(blockId);
   }
@@ -1222,8 +1233,9 @@ function createWorkshopSession(ctx, onClosed) {
     preserveHostScrollThroughSelection(() => {
       secondaryDraftValue = null;
       secondaryBlockId = blockId;
+      secondaryEditorBase = canonicalValue.blocks;
       recomputeDerived();
-      secondaryEditor.update({ selectedBlockId: blockId });
+      secondaryEditor.update({ value: localValue(), selectedBlockId: blockId });
       renderEditorVisibility();
       renderPrompts();
       renderVariables();
@@ -1247,7 +1259,7 @@ function createWorkshopSession(ctx, onClosed) {
       primaryDirty: primaryDraftValue !== null,
       secondaryDirty: secondaryDraftValue !== null
     }, "secondary", blockId);
-    if (!await confirmDraftDiscard(discarded))
+    if (!retainEditorDrafts(discarded))
       return;
     applySecondaryBlock(blockId);
   }
@@ -1615,6 +1627,87 @@ function createWorkshopSession(ctx, onClosed) {
     }
     container.append(detail);
   }
+  function refreshLocalDrafts() {
+    if (destroyed || !root.isConnected)
+      return;
+    if (!retainEditorDrafts(["primary", "secondary"]))
+      return;
+    recomputeDerived();
+    editor.update({ value: localValue(), selectedBlockId });
+    secondaryEditor.update({ value: localValue(), selectedBlockId: secondaryBlockId });
+    renderPrompts();
+    renderVariables();
+    setDraftStatus();
+    schedulePreview();
+    scheduleNativeDecoration();
+  }
+  function discardLocalDrafts() {
+    issueReview.clear();
+    primaryDraftValue = null;
+    secondaryDraftValue = null;
+    editor.destroy();
+    secondaryEditor.destroy();
+    primaryEditorBase = canonicalValue.blocks;
+    secondaryEditorBase = canonicalValue.blocks;
+    editor = mountEditorLane("primary");
+    secondaryEditor = mountEditorLane("secondary");
+    root.querySelector('[data-role="draft-notice"]').hidden = true;
+    root.classList.remove("has-draft-error");
+    refreshLocalDrafts();
+  }
+  async function applyLocalDrafts() {
+    if (applyingDrafts)
+      return "A batch is already being applied.";
+    if (!retainEditorDrafts(["primary", "secondary"]))
+      return "A prompt draft has an ambiguous identity.";
+    if (issueReview.size === 0) {
+      refreshLocalDrafts();
+      return null;
+    }
+    const host = ctx.ui.presetEditor.getState();
+    if (!host.open || host.presetId !== sessionPresetId)
+      return "The active preset changed. Reopen Workshop.";
+    let applied = false;
+    let conflict = null;
+    applyingDrafts = true;
+    setDraftStatus();
+    try {
+      ctx.ui.presetEditor.updatePreset((latest) => {
+        const result = issueReview.apply(latest.blocks);
+        if (!result.ok) {
+          conflict = result.conflict;
+          return latest;
+        }
+        applied = true;
+        return { ...latest, blocks: result.blocks };
+      });
+      if (!applied)
+        return `Prompt ${conflict} changed or disappeared outside Workshop. Your local drafts are retained. Discard drafts to restart from the latest preset.`;
+      issueReview.clear();
+      await ctx.ui.presetEditor.flush();
+      return null;
+    } catch {
+      return applied ? "Applied to the preset draft, but persistence failed. Retry saving the preset." : "Could not apply the draft batch. Local edits are retained.";
+    } finally {
+      applyingDrafts = false;
+      refreshLocalDrafts();
+    }
+  }
+  root.querySelector('[data-action="apply-drafts"]').addEventListener("click", async () => {
+    const error = await applyLocalDrafts();
+    if (destroyed)
+      return;
+    const notice = root.querySelector('[data-role="draft-notice"]');
+    notice.textContent = error ?? "";
+    notice.hidden = !error;
+    root.classList.toggle("has-draft-error", Boolean(error));
+  });
+  root.querySelector('[data-action="discard-drafts"]').addEventListener("click", async () => {
+    const result = await ctx.ui.showConfirm({ title: "Discard local drafts?", message: "Discard all unsynced prompt edits and return to the current preset?", variant: "warning", confirmLabel: "Discard drafts" });
+    if (!result.confirmed || destroyed || applyingDrafts)
+      return;
+    discardLocalDrafts();
+  });
   function openIssueReview() {
     if (destroyed || closeIssueReview)
       return;
@@ -1625,9 +1718,10 @@ function createWorkshopSession(ctx, onClosed) {
     surface.innerHTML = `<header class="workshop-review-header"><strong>Review issues</strong><span data-review="position"></span><button type="button" class="workshop-text-button" data-review="close">Close</button></header>
       <section class="workshop-review-issue" aria-live="polite"><h3 data-review="title"></h3><p data-review="prompt"></p><p data-review="message"></p><p data-review="state"></p></section>
       <div class="workshop-review-editor" data-review="editor"></div>
-      <footer class="workshop-review-footer"><span class="workshop-review-notice" data-review="notice"></span><button class="workshop-text-button" type="button" data-review="previous">Previous</button><button class="workshop-text-button" type="button" data-review="next">Next</button><button class="workshop-text-button" type="button" data-review="recheck">Recheck</button><button class="workshop-text-button" type="button" data-review="discard">Discard fixes</button><button class="workshop-text-button" type="button" data-review="apply">Apply</button></footer>`;
+      <footer class="workshop-review-footer"><span class="workshop-review-notice" data-review="notice"></span><button class="workshop-text-button" type="button" data-review="previous">Previous</button><button class="workshop-text-button" type="button" data-review="next">Next</button><button class="workshop-text-button" type="button" data-review="recheck">Recheck</button><button class="workshop-text-button" type="button" data-review="discard">Discard drafts</button><button class="workshop-text-button" type="button" data-review="apply">Apply</button></footer>`;
     const el = (name) => surface.querySelector(`[data-review="${name}"]`);
     const button = (name) => el(name);
+    retainEditorDrafts(["primary", "secondary"]);
     let queue = buildReviewIssues(issueReview.overlay(canonicalValue.blocks), canonicalValue.promptVariableValues);
     let position = 0;
     let transient = null;
@@ -1653,7 +1747,7 @@ function createWorkshopSession(ctx, onClosed) {
       el("prompt").textContent = issue ? blocks.find((block) => block.id === issue.blockId)?.name ?? issue.blockId : "";
       el("message").textContent = issue?.message ?? "Recheck to refresh the review queue, or Apply your local fixes.";
       el("state").textContent = issue ? !editable() ? "Editing unavailable: missing or ambiguous prompt identity." : activeIssues.some((next) => next.key === issue.key) ? "Still present" : "Resolved locally" : "";
-      el("notice").textContent = error || `${issueReview.size} prompt fixes kept locally. Save and navigation retain valid drafts here; Apply writes the batch to the preset.`;
+      el("notice").textContent = error || `${issueReview.size} prompt drafts kept locally. Save and navigation retain valid drafts here; Apply writes all local drafts to the preset.`;
       el("notice").classList.toggle("workshop-review-error", Boolean(error));
       button("previous").disabled = position === 0;
       button("next").disabled = position >= queue.length - 1;
@@ -1710,10 +1804,8 @@ function createWorkshopSession(ctx, onClosed) {
       restoreChrome();
       unsubscribe();
       reviewModal.dismiss();
-      if (!destroyed) {
-        setDraftStatus();
-        renderVariables();
-      }
+      if (!destroyed)
+        refreshLocalDrafts();
     };
     const unsubscribe = reviewModal.onDismiss(finish);
     closeIssueReview = finish;
@@ -1733,8 +1825,8 @@ function createWorkshopSession(ctx, onClosed) {
       setDraftStatus();
     });
     button("discard").addEventListener("click", () => {
-      issueReview.clear();
       transient = null;
+      discardLocalDrafts();
       error = "";
       queue = buildReviewIssues(canonicalValue.blocks, canonicalValue.promptVariableValues);
       position = 0;
@@ -1745,45 +1837,18 @@ function createWorkshopSession(ctx, onClosed) {
       if (applying)
         return;
       retain();
-      if (primaryDraftValue || secondaryDraftValue) {
-        render();
-        return;
-      }
-      let conflict = null;
-      let applied = false;
-      const host = ctx.ui.presetEditor.getState();
-      if (!host.open || host.presetId !== sessionPresetId) {
-        error = "The active preset changed. Reopen Workshop.";
-        render();
-        return;
-      }
-      ctx.ui.presetEditor.updatePreset((latest) => {
-        const result = issueReview.apply(latest.blocks);
-        if (!result.ok) {
-          conflict = result.conflict;
-          return latest;
-        }
-        applied = true;
-        return { ...latest, blocks: result.blocks };
-      });
-      if (!applied) {
-        error = `Prompt ${conflict} changed or disappeared outside this review. Your local fixes are retained; discard them to restart from the latest preset.`;
-        render();
-        return;
-      }
-      issueReview.clear();
       applying = true;
       render();
-      try {
-        await ctx.ui.presetEditor.flush();
-      } catch {
-        error = "Applied to the preset draft, but persistence failed. Retry saving the preset.";
-      }
+      error = await applyLocalDrafts() ?? "";
       applying = false;
       if (closed || destroyed)
         return;
       button("close").disabled = false;
       button("recheck").disabled = false;
+      if (error) {
+        render();
+        return;
+      }
       queue = buildReviewIssues(canonicalValue.blocks, canonicalValue.promptVariableValues);
       position = 0;
       load();
@@ -2295,16 +2360,20 @@ function createWorkshopSession(ctx, onClosed) {
       console.warn(`[Workshop] Ignored ${lane} native Loom commit without a selected block.`);
       return;
     }
-    let failure = null;
-    ctx.ui.presetEditor.updatePreset((latest) => {
-      const patched = replaceUniqueBlock(latest.blocks, value.blocks, targetId);
-      if (!patched.ok) {
-        failure = patched.reason ?? "unknown";
-        return latest;
-      }
-      return { ...latest, blocks: patched.blocks };
-    });
-    reportWriteFailure(targetId, failure);
+    const base = lane === "primary" ? primaryEditorBase : secondaryEditorBase;
+    if (!issueReview.stage(base, value.blocks, targetId)) {
+      reportWriteFailure(targetId, "ambiguous local draft");
+      return;
+    }
+    if (lane === "primary")
+      primaryDraftValue = null;
+    else
+      secondaryDraftValue = null;
+    recomputeDerived();
+    setDraftStatus();
+    renderPrompts();
+    renderVariables();
+    schedulePreview();
   }
   function syncCanonicalFromHost() {
     const state = ctx.ui.presetEditor.getState();
@@ -2313,6 +2382,7 @@ function createWorkshopSession(ctx, onClosed) {
     const next = editorValueFromHost(ctx);
     if (!next)
       return false;
+    retainEditorDrafts(["primary", "secondary"]);
     canonicalValue = next;
     latestPresetName = state.preset.name;
     presetName.textContent = latestPresetName;
@@ -2329,8 +2399,10 @@ function createWorkshopSession(ctx, onClosed) {
       secondaryDraftValue = null;
     }
     recomputeDerived();
-    editor.update({ value: canonicalValue, selectedBlockId });
-    secondaryEditor.update({ value: canonicalValue, selectedBlockId: secondaryBlockId });
+    primaryEditorBase = canonicalValue.blocks;
+    secondaryEditorBase = canonicalValue.blocks;
+    editor.update({ value: localValue(), selectedBlockId });
+    secondaryEditor.update({ value: localValue(), selectedBlockId: secondaryBlockId });
     renderEditorVisibility();
     renderPrompts();
     renderVariables();
@@ -2339,64 +2411,46 @@ function createWorkshopSession(ctx, onClosed) {
     schedulePreview();
     return true;
   }
-  editor = ctx.components.mountLoomBlockEditor(editorMount, {
-    value: canonicalValue,
-    selectedBlockId: null,
-    onSelectedBlockChange: (blockId) => {
-      if (destroyed)
-        return;
-      requestSelectedBlock(blockId);
-    },
-    onDraftChange: (value) => {
-      if (destroyed)
-        return;
-      primaryDraftValue = value;
-      recomputeDerived();
-      setDraftStatus();
-      renderPrompts();
-      renderVariables();
-      scheduleNativeDecoration();
-      schedulePreview();
-    },
-    onChange: (value) => {
-      if (destroyed)
-        return;
-      commitEditorValue(selectedBlockId, value, "primary");
-    },
-    compact: false,
-    readOnly: false
-  });
-  secondaryEditor = ctx.components.mountLoomBlockEditor(secondaryEditorMount, {
-    value: canonicalValue,
-    selectedBlockId: null,
-    onSelectedBlockChange: (blockId) => {
-      if (destroyed)
-        return;
-      if (blockId === selectedBlockId) {
-        requestSecondaryBlock(null);
-        return;
-      }
-      requestSecondaryBlock(blockId);
-    },
-    onDraftChange: (value) => {
-      if (destroyed)
-        return;
-      secondaryDraftValue = value;
-      recomputeDerived();
-      setDraftStatus();
-      renderPrompts();
-      renderVariables();
-      scheduleNativeDecoration();
-      schedulePreview();
-    },
-    onChange: (value) => {
-      if (destroyed)
-        return;
-      commitEditorValue(secondaryBlockId, value, "secondary");
-    },
-    compact: false,
-    readOnly: false
-  });
+  const editorGenerations = { primary: 0, secondary: 0 };
+  function mountEditorLane(lane) {
+    const generation = ++editorGenerations[lane];
+    const alive = () => !destroyed && editorGenerations[lane] === generation;
+    return ctx.components.mountLoomBlockEditor(lane === "primary" ? editorMount : secondaryEditorMount, {
+      value: localValue(),
+      selectedBlockId: lane === "primary" ? selectedBlockId : secondaryBlockId,
+      onSelectedBlockChange: (blockId) => {
+        if (!alive())
+          return;
+        if (lane === "primary")
+          requestSelectedBlock(blockId);
+        else
+          requestSecondaryBlock(blockId === selectedBlockId ? null : blockId);
+      },
+      onDraftChange: (value) => {
+        if (!alive())
+          return;
+        if (lane === "primary")
+          primaryDraftValue = value;
+        else
+          secondaryDraftValue = value;
+        recomputeDerived();
+        setDraftStatus();
+        renderPrompts();
+        renderVariables();
+        scheduleNativeDecoration();
+        schedulePreview();
+      },
+      onChange: (value) => {
+        if (!alive())
+          return;
+        commitEditorValue(lane === "primary" ? selectedBlockId : secondaryBlockId, value, lane);
+      },
+      compact: false,
+      readOnly: false
+    });
+  }
+  editor = mountEditorLane("primary");
+  secondaryEditor = mountEditorLane("secondary");
   async function copyText(text) {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);
@@ -2423,7 +2477,7 @@ function createWorkshopSession(ctx, onClosed) {
       const names = dirtyBlocks.map((block) => block.name || block.id).join(", ");
       const result = await ctx.ui.showConfirm({
         title: dirtyBlocks.length > 1 ? "Discard prompt drafts?" : "Discard prompt draft?",
-        message: `${names || "Issue review"} has unapplied edits${issueReview.size ? `, including ${issueReview.size} locally reviewed prompts` : ""}. Close Workshop and discard them?`,
+        message: `${names || "Issue review"} has unapplied edits${issueReview.size ? `, including ${issueReview.size} locally saved prompts` : ""}. Close Workshop and discard them?`,
         variant: "warning",
         confirmLabel: "Discard and close"
       });

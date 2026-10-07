@@ -1,3 +1,9 @@
+# Workshop 0.5.0 verification
+
+- `bun run verify`: typecheck, 47 unit tests, and synchronized distribution build.
+- The controlled desktop/mobile review fixture also exercises ordinary prompt draft navigation, local Save, reopening prompts, dual-editor promotion, distinct Apply counts, header containment, atomic batch writes, unrelated host refreshes, touched-prompt conflicts, and discard/reset of the mounted editors.
+- Existing mock-variable browser checks run with the new sections-first default.
+
 # Workshop 0.4.0 verification
 
 - `bun run verify`: typecheck, 47 unit tests, and synchronized distribution build.

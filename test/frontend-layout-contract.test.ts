@@ -56,7 +56,7 @@ describe('Workshop frontend layout contract', () => {
 
   test('supports dual native Loom editors and restores variables beneath in dual mode', () => {
     expect(source).toContain('data-role="secondary-editor-mount"')
-    expect(source).toContain('ctx.components.mountLoomBlockEditor(secondaryEditorMount')
+    expect(source).toContain("secondaryEditor = mountEditorLane('secondary')")
     expect(source).toContain('void requestSecondaryBlock(block.id === secondaryBlockId ? null : block.id)')
     expect(source).toContain('&& !secondaryBlockId')
     expect(source).toContain('decorateNativeMount(secondaryEditorMount, false)')
@@ -91,10 +91,10 @@ describe('Workshop frontend layout contract', () => {
   })
 
 
-  test('guards prompt navigation when native Loom drafts are unsaved', () => {
-    expect(source).toContain('async function confirmDraftDiscard(slots: readonly WorkshopEditorSlot[]): Promise<boolean>')
-    expect(source).toContain("title: 'Discard unsaved prompt edits?'")
-    expect(source).toContain("confirmLabel: 'Discard changes'")
+  test('retains local drafts across prompt navigation', () => {
+    expect(source).toContain('function retainEditorDrafts(slots: readonly WorkshopEditorSlot[]): boolean')
+    expect(source).toContain('issueReview.stage(base, value.blocks, id)')
+    expect(source).toContain('if (!retainEditorDrafts(discarded)) return')
     expect(source).toContain('async function requestSelectedBlock(blockId: string | null): Promise<void>')
     expect(source).toContain('async function requestSecondaryBlock(blockId: string | null): Promise<void>')
     expect(source).toContain("draftSlotsDiscardedBySelection({")

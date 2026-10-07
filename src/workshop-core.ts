@@ -488,6 +488,7 @@ export function buildReviewIssues(blocks: readonly PromptBlockDTO[], values: Pro
 export class WorkshopIssueReview {
   private patches = new Map<string, { baseline: string; block: PromptBlockDTO }>()
   get size(): number { return this.patches.size }
+  get blockIds(): string[] { return [...this.patches.keys()] }
   clear(): void { this.patches.clear() }
   stage(host: readonly PromptBlockDTO[], source: readonly PromptBlockDTO[], id: string): boolean {
     const original = host.filter((block) => block.id === id)
