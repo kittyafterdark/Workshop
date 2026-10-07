@@ -1,6 +1,6 @@
-# Lumiverse Workshop v0.3.4 — Source Manifest
+# Lumiverse Workshop v0.3.5 — Source Manifest
 
-Cumulative editable source package. This patch replaces the flaky registered-toolbar launcher bridge with Loom's canonical persistent `preset_editor_toolbar` mount point, eliminating the base-editor registration race while retaining the 0.3.3 prompt-navigation polish and 0.3.2 unsaved-draft guard.
+Extension release with a session-only prompt-variable sandbox for assembly preview, typed controls, reset actions, and stale-definition handling. Distribution bundles are included for the Extensions update workflow.
 
 ## Files
 
@@ -12,6 +12,7 @@ Cumulative editable source package. This patch replaces the flaky registered-too
 - `dist/frontend.js`
 - `package.json`
 - `scripts/build.mjs`
+- `scripts/check-variable-sandbox.mjs`
 - `spindle.json`
 - `src/backend-core.ts`
 - `src/backend.ts`
@@ -22,6 +23,7 @@ Cumulative editable source package. This patch replaces the flaky registered-too
 - `test/frontend-layout-contract.test.ts`
 - `test/pipeline-mock.test.ts`
 - `test/workshop-core.test.ts`
+- `test/variable-sandbox.test.ts`
 - `tsconfig.json`
 
 ## Text/EOL policy

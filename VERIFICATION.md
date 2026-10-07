@@ -1,4 +1,11 @@
-# Workshop 0.3.4 verification
+# Workshop 0.3.5 verification
+
+- `bun run verify`: full typecheck, unit tests, and distribution build.
+- `test/variable-sandbox.test.ts`: immutable preview overlays, array isolation, reset to fresh host values, empty/zero values, invalid inputs, and stale/ambiguous definition handling.
+- `scripts/check-variable-sandbox.mjs`: real Workshop distribution bundle with controlled Spindle/native-editor boundaries and assembly responses. Uses Playwright from the Lumiverse diagnostics tooling or another existing installation via `PLAYWRIGHT_MODULE`. Runs desktop (1440px) and mobile (390px) checks for all seven variable types, keyboard focus/selection, reset, host refresh, definition changes, close/reopen, and isolation from preset writes/native editor values.
+- The browser fixture does not exercise live Lumiverse assembly or the extension updater. Verify those by updating Workshop from Lumi's Extensions tab and changing mock values against an active chat.
+
+# Historical 0.3.4 verification
 
 Workshop targets `lumiverse-spindle-types` 0.6.31 and the corresponding controlled Loom editor implementation.
 
@@ -21,6 +28,6 @@ bun install
 bun run verify
 ```
 
-## Deliberately deferred
+## Deferred in 0.3.4 (implemented in 0.3.5)
 
 Temporary editing of prompt-variable **values** remains deliberately deferred in 0.3.4. That should use a dedicated ephemeral preview-value layer rather than piggybacking on persisted preset/profile values.

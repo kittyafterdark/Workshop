@@ -6,6 +6,13 @@ Workshop is a fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.3.5 prompt-variable sandbox
+
+- Select a variable in Workshop's variable rail to edit a mock value using its declared text, textarea, number, slider, switch, select, or multiselect control. Text/numeric edits take effect when committed with Tab or by leaving the control.
+- Mock values affect assembly preview only. Native Loom editors and saved preset/profile values retain their real values.
+- Active overrides show a Mock marker; Reset mock restores one variable to its latest real value, and Reset mocks clears all overrides. Closing Workshop clears the sandbox.
+- Removed/changed definitions and ambiguous definition/block identities clear stale overrides. Mocking ambiguous variables is disabled.
+
 ## 0.3.4 persistent Loom launcher mount
 
 - Replaces the registered preset-toolbar-item launcher bridge with Loom's canonical `ctx.ui.mount('preset_editor_toolbar')` host mount point. Spindle's mount service owns a persistent `MutationObserver` and automatically reattaches the same Workshop root whenever Loom swaps list/edit branches, so the launcher no longer depends on extension-load vs. host-paint ordering.
@@ -97,6 +104,8 @@ This prevents a stale editor snapshot from overwriting unrelated host/profile ch
 ```bash
 bun install
 bun run verify
+# Requires Playwright, or PLAYWRIGHT_MODULE pointing to its index.mjs:
+node scripts/check-variable-sandbox.mjs
 ```
 
 Build output is written to `dist/frontend.js` and `dist/backend.js`.

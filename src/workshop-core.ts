@@ -231,6 +231,59 @@ export function buildVariableIndex(
 }
 
 
+/** Session-only overrides; never passed to a native editor or preset write. */
+export class WorkshopVariableSandbox {
+  private readonly overrides = new Map<string, { signature: string; value: PromptVariableValueDTO }>()
+
+  private signature(entry: VariableIndexEntry): string | null {
+    return entry.definitions.length === 1 ? JSON.stringify([entry.definitions[0].blockId, entry.definitions[0].definition]) : null
+  }
+
+  set(entry: VariableIndexEntry, value: PromptVariableValueDTO): boolean {
+    const signature = this.signature(entry)
+    if (!signature) return false
+    const definition = entry.definitions[0].definition
+    let valid = false
+    switch (definition.type) {
+      case 'text': case 'textarea': valid = typeof value === 'string'; break
+      case 'switch': valid = value === 0 || value === 1; break
+      case 'select': valid = typeof value === 'string' && definition.options.some((option) => option.id === value); break
+      case 'multiselect': valid = Array.isArray(value) && value.every((id) => definition.options.some((option) => option.id === id)); break
+      case 'number': case 'slider':
+        valid = typeof value === 'number' && Number.isFinite(value)
+          && (definition.min === undefined || value >= definition.min)
+          && (definition.max === undefined || value <= definition.max)
+        break
+    }
+    if (!valid) return false
+    this.overrides.set(entry.name, { signature, value: Array.isArray(value) ? [...value] : value })
+    return true
+  }
+
+  reset(name?: string): void {
+    if (name === undefined) this.overrides.clear()
+    else this.overrides.delete(name)
+  }
+
+  has(name: string): boolean { return this.overrides.has(name) }
+  get size(): number { return this.overrides.size }
+
+  overlay(blocks: readonly PromptBlockDTO[], values: PromptVariableValuesDTO): PromptVariableValuesDTO {
+    const index = buildVariableIndex(blocks, values)
+    const result = { ...values }
+    for (const [name, override] of this.overrides) {
+      const entry = index.byName.get(name)
+      if (!entry || this.signature(entry) !== override.signature || index.duplicateBlockIds.includes(entry.definitions[0].blockId)) {
+        this.overrides.delete(name)
+        continue
+      }
+      const blockId = entry.definitions[0].blockId
+      result[blockId] = { ...result[blockId], [name]: Array.isArray(override.value) ? [...override.value] : override.value }
+    }
+    return result
+  }
+}
+
 export interface WorkshopPromptGroup {
   categoryBlock: PromptBlockDTO | null
   children: PromptBlockDTO[]

@@ -161,6 +161,69 @@ function buildVariableIndex(blocks, promptVariableValues) {
     referenceCount: [...refsByVariable.values()].flat().reduce((sum, reference) => sum + reference.count, 0)
   };
 }
+
+class WorkshopVariableSandbox {
+  overrides = new Map;
+  signature(entry) {
+    return entry.definitions.length === 1 ? JSON.stringify([entry.definitions[0].blockId, entry.definitions[0].definition]) : null;
+  }
+  set(entry, value) {
+    const signature = this.signature(entry);
+    if (!signature)
+      return false;
+    const definition = entry.definitions[0].definition;
+    let valid = false;
+    switch (definition.type) {
+      case "text":
+      case "textarea":
+        valid = typeof value === "string";
+        break;
+      case "switch":
+        valid = value === 0 || value === 1;
+        break;
+      case "select":
+        valid = typeof value === "string" && definition.options.some((option) => option.id === value);
+        break;
+      case "multiselect":
+        valid = Array.isArray(value) && value.every((id) => definition.options.some((option) => option.id === id));
+        break;
+      case "number":
+      case "slider":
+        valid = typeof value === "number" && Number.isFinite(value) && (definition.min === undefined || value >= definition.min) && (definition.max === undefined || value <= definition.max);
+        break;
+    }
+    if (!valid)
+      return false;
+    this.overrides.set(entry.name, { signature, value: Array.isArray(value) ? [...value] : value });
+    return true;
+  }
+  reset(name) {
+    if (name === undefined)
+      this.overrides.clear();
+    else
+      this.overrides.delete(name);
+  }
+  has(name) {
+    return this.overrides.has(name);
+  }
+  get size() {
+    return this.overrides.size;
+  }
+  overlay(blocks, values) {
+    const index = buildVariableIndex(blocks, values);
+    const result = { ...values };
+    for (const [name, override] of this.overrides) {
+      const entry = index.byName.get(name);
+      if (!entry || this.signature(entry) !== override.signature || index.duplicateBlockIds.includes(entry.definitions[0].blockId)) {
+        this.overrides.delete(name);
+        continue;
+      }
+      const blockId = entry.definitions[0].blockId;
+      result[blockId] = { ...result[blockId], [name]: Array.isArray(override.value) ? [...override.value] : override.value };
+    }
+    return result;
+  }
+}
 function computePromptGroups(blocks) {
   if (blocks.length === 0)
     return [];
@@ -562,6 +625,11 @@ var WORKSHOP_CSS = String.raw`
 .workshop-variable-macro { display: block; margin-top: 4px; color: var(--lumiverse-primary-text, var(--lumiverse-text-muted)); font: 9.5px/1.4 var(--lumiverse-font-mono, ui-monospace, monospace); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workshop-variable-owner { display: block; margin-top: 5px; color: var(--lumiverse-text-muted); font-size: 9px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workshop-section-label { margin: 13px 8px 5px; color: var(--lumiverse-text-dim); font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.right-collapsed .workshop-rail.right [data-action="reset-mocks"] { display: none; }
+.workshop-sandbox { display: grid; gap: 7px; margin: 12px 0 7px; font-size: 11px; }
+.workshop-sandbox input:not([type="checkbox"]), .workshop-sandbox textarea, .workshop-sandbox select { box-sizing: border-box; width: 100%; min-width: 0; padding: 6px; color: var(--lumiverse-text); background: var(--lumiverse-bg-deep, #101014); border: 1px solid var(--lumiverse-border); border-radius: 5px; font: inherit; }
+.workshop-sandbox input[type="checkbox"] { justify-self: start; }
+.workshop-sandbox select[multiple] { min-height: 80px; }
 .workshop-variable-detail { margin: 3px 2px 10px; padding: 10px; border: 1px solid var(--lumiverse-border, rgba(255,255,255,.09)); border-radius: 10px; background: var(--lumiverse-bg-deep, #101014); }
 .workshop-detail-heading { font-size: 12px; font-weight: 750; margin-bottom: 4px; }
 .workshop-detail-macro-row { display: flex; gap: 5px; align-items: center; }
@@ -615,6 +683,7 @@ var WORKSHOP_CSS = String.raw`
   .left-collapsed .workshop-rail.left .workshop-search-wrap,
   .left-collapsed .workshop-rail.left .workshop-scroll,
   .left-collapsed .workshop-rail.left .workshop-rail-note,
+  .right-collapsed .workshop-rail.right [data-action="reset-mocks"],
   .right-collapsed .workshop-rail.right .workshop-rail-title,
   .right-collapsed .workshop-rail.right .workshop-count,
   .right-collapsed .workshop-rail.right .workshop-search-wrap,
@@ -838,6 +907,7 @@ function createWorkshopSession(ctx, onClosed) {
           <button class="workshop-mini-button workshop-rail-collapse" type="button" data-action="right" aria-label="Collapse variables">${ICONS.right}</button>
           <span class="workshop-rail-title">VARIABLES</span>
           <span class="workshop-count" data-role="variable-count"></span>
+          <button class="workshop-text-button" type="button" data-action="reset-mocks" disabled>Reset mocks</button>
         </div>
         <div class="workshop-search-wrap"><input class="workshop-search" data-role="variable-search" type="search" placeholder="Search variables…" aria-label="Search variables"></div>
         <div class="workshop-variable-workspace" data-role="variable-list"></div>
@@ -870,6 +940,7 @@ function createWorkshopSession(ctx, onClosed) {
   const leftRailButton = root.querySelector('[data-action="left"]');
   const rightRailButton = root.querySelector('[data-action="right"]');
   const previewResizer = root.querySelector('[data-resize="preview"]');
+  const variableSandbox = new WorkshopVariableSandbox;
   let destroyed = false;
   let canonicalValue = initialValue;
   let primaryDraftValue = null;
@@ -908,7 +979,11 @@ function createWorkshopSession(ctx, onClosed) {
       { selectedBlockId, value: primaryDraftValue },
       { selectedBlockId: secondaryBlockId, value: secondaryDraftValue }
     ]);
+    variableSandbox.overlay(derivedValue.blocks, derivedValue.promptVariableValues);
     derivedIndex = buildVariableIndex(derivedValue.blocks, derivedValue.promptVariableValues);
+    const resetMocks = root.querySelector('[data-action="reset-mocks"]');
+    resetMocks.disabled = variableSandbox.size === 0;
+    resetMocks.textContent = variableSandbox.size ? `Reset mocks (${variableSandbox.size})` : "Reset mocks";
   }
   function effectiveValue() {
     return derivedValue;
@@ -1210,6 +1285,98 @@ function createWorkshopSession(ctx, onClosed) {
     promptList.scrollTop = Math.min(previousScrollTop, Math.max(0, promptList.scrollHeight - promptList.clientHeight));
     promptList.scrollLeft = Math.min(previousScrollLeft, Math.max(0, promptList.scrollWidth - promptList.clientWidth));
   }
+  function refreshSandbox() {
+    const activeLabel = document.activeElement?.getAttribute("aria-label");
+    recomputeDerived();
+    renderVariables();
+    if (activeLabel) {
+      const replacement = [...root.querySelectorAll(".workshop-sandbox [aria-label]")].find((element) => element.getAttribute("aria-label") === activeLabel);
+      replacement?.focus({ preventScroll: true });
+    }
+    schedulePreview();
+  }
+  root.querySelector('[data-action="reset-mocks"]').addEventListener("click", () => {
+    variableSandbox.reset();
+    refreshSandbox();
+  });
+  function appendSandboxControl(detail, entry) {
+    const label = document.createElement("label");
+    label.className = "workshop-sandbox";
+    const title = document.createElement("span");
+    title.textContent = "Mock value · preview only";
+    label.append(title);
+    const primary = entry.definitions[0];
+    const definition = primary.definition;
+    if (entry.duplicateDefinition || variableIndex().duplicateBlockIds.includes(primary.blockId)) {
+      const warning = document.createElement("div");
+      warning.textContent = "Resolve duplicate definitions or block IDs to mock this variable.";
+      label.append(warning);
+      detail.append(label);
+      return;
+    }
+    const values = variableSandbox.overlay(effectiveValue().blocks, effectiveValue().promptVariableValues);
+    const value = values[primary.blockId]?.[entry.name] ?? primary.storedValue;
+    let control;
+    let read;
+    if (definition.type === "select" || definition.type === "multiselect") {
+      const select = document.createElement("select");
+      select.multiple = definition.type === "multiselect";
+      for (const option of definition.options) {
+        const item = document.createElement("option");
+        item.value = option.id;
+        item.textContent = option.label;
+        item.selected = Array.isArray(value) ? value.includes(option.id) : value === option.id;
+        select.append(item);
+      }
+      control = select;
+      read = () => select.multiple ? [...select.selectedOptions].map((option) => option.value) : select.value;
+    } else if (definition.type === "textarea") {
+      const textarea = document.createElement("textarea");
+      textarea.rows = definition.rows ?? 3;
+      textarea.value = String(value);
+      control = textarea;
+      read = () => textarea.value;
+    } else {
+      const input = document.createElement("input");
+      input.type = definition.type === "switch" ? "checkbox" : definition.type === "slider" ? "range" : definition.type === "number" ? "number" : "text";
+      input.value = String(value);
+      input.checked = value === 1 || value === "1";
+      if (definition.type === "number" || definition.type === "slider") {
+        if (definition.min !== undefined)
+          input.min = String(definition.min);
+        if (definition.max !== undefined)
+          input.max = String(definition.max);
+        input.step = String(definition.step ?? (definition.type === "slider" ? 1 : "any"));
+      }
+      control = input;
+      read = () => input.type === "checkbox" ? Number(input.checked) : input.type === "number" || input.type === "range" ? input.valueAsNumber : input.value;
+    }
+    control.setAttribute("aria-label", `Mock ${definition.label || entry.name}`);
+    control.addEventListener("change", () => {
+      if (!control.checkValidity()) {
+        control.reportValidity();
+        return;
+      }
+      if (variableSandbox.set(entry, read()))
+        refreshSandbox();
+    });
+    label.append(control);
+    detail.append(label);
+    const described = describePromptVariableValue(definition, value);
+    const resolved = document.createElement("div");
+    resolved.className = "workshop-description";
+    resolved.textContent = `Preview resolves: ${described.resolved || "Empty"}`;
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "workshop-text-button";
+    reset.textContent = "Reset mock";
+    reset.disabled = !variableSandbox.has(entry.name);
+    reset.addEventListener("click", () => {
+      variableSandbox.reset(entry.name);
+      refreshSandbox();
+    });
+    detail.append(resolved, reset);
+  }
   function appendDefinitionDetail(container, entry) {
     const primary = entry.definitions[0];
     if (!primary)
@@ -1271,6 +1438,7 @@ function createWorkshopSession(ctx, onClosed) {
       grid.append(k, v);
     }
     detail.append(grid);
+    appendSandboxControl(detail, entry);
     if (primary.definition.description) {
       const description = document.createElement("div");
       description.className = "workshop-description";
@@ -1470,7 +1638,7 @@ function createWorkshopSession(ctx, onClosed) {
         head.className = "workshop-variable-card-head";
         const label = document.createElement("span");
         label.className = "workshop-variable-label";
-        label.textContent = primary?.definition.label || entry.name;
+        label.textContent = `${primary?.definition.label || entry.name}${variableSandbox.has(entry.name) ? " · Mock" : ""}`;
         const refs = document.createElement("span");
         refs.className = "workshop-variable-refcount";
         refs.textContent = `${refCount} ref${refCount === 1 ? "" : "s"}`;
@@ -1627,7 +1795,7 @@ function createWorkshopSession(ctx, onClosed) {
         requestId,
         chatId,
         blocks: value.blocks,
-        promptVariables: value.promptVariableValues
+        promptVariables: variableSandbox.overlay(value.blocks, value.promptVariableValues)
       });
     };
     previewTimer = setTimeout(run, immediate ? 0 : PREVIEW_DEBOUNCE_MS);
