@@ -369,7 +369,7 @@ const WORKSHOP_CSS = String.raw`
   .workshop-shell.preview-split:not(.preview-collapsed) .workshop-preview { grid-column: 1; grid-row: 3; border-left: 0; border-top: 1px solid var(--lumiverse-border); }
   .workshop-editor-stage.dual { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
   .workshop-primary-textarea { min-height: 300px !important; }
-  .workshop-rail { position: absolute; top: 0; bottom: 0; z-index: 20; width: min(86vw, 360px) !important; visibility: visible !important; box-shadow: var(--lumiverse-shadow-lg, 0 12px 40px rgba(0,0,0,.35)); transition: transform 160ms ease; }
+  .workshop-rail { background: linear-gradient(var(--lumiverse-bg-dark, #141419), var(--lumiverse-bg-dark, #141419)), var(--lumiverse-bg, #141419); position: absolute; top: 0; bottom: 0; z-index: 20; width: min(86vw, 360px) !important; visibility: visible !important; box-shadow: var(--lumiverse-shadow-lg, 0 12px 40px rgba(0,0,0,.35)); transition: transform 160ms ease; }
   .workshop-rail.left { left: 0; transform: translateX(-102%); }
   .workshop-rail.right { right: 0; transform: translateX(102%); }
   .workshop-shell.mobile-left-open .workshop-rail.left { transform: translateX(0); }

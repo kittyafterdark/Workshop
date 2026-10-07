@@ -6,6 +6,10 @@ Workshop is a fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.3.6 opaque mobile rails
+
+- Mobile prompt and variable drawers composite the theme's rail tint over a solid base, preventing editor/preview content from showing through translucent themes.
+
 ## 0.3.5 prompt-variable sandbox
 
 - Select a variable in Workshop's variable rail to edit a mock value using its declared text, textarea, number, slider, switch, select, or multiselect control. Text/numeric edits take effect when committed with Tab or by leaving the control.

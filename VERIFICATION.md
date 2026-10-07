@@ -1,3 +1,8 @@
+# Workshop 0.3.6 verification
+
+- Browser regression fixture uses a translucent rail theme and checks both mobile rails have a solid base beneath the theme tint. Desktop and mobile sandbox interaction checks remain covered.
+- Live theme inspection confirmed `--lumiverse-bg-dark` resolves to `rgba(0, 0, 0, 0.15)`, explaining the mobile bleed-through.
+
 # Workshop 0.3.5 verification
 
 - `bun run verify`: full typecheck, unit tests, and distribution build.

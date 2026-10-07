@@ -11,7 +11,7 @@ const bundle = await readFile(new URL('../dist/frontend.js', import.meta.url))
 const fixture = `<!doctype html><html><head><style>
 * { box-sizing:border-box; }
 html, body { width:100%; height:100%; overflow:hidden; margin:0; font-family:Arial,sans-serif; }
-:root { --lumiverse-text:#eee; --lumiverse-text-muted:#aaa; --lumiverse-text-dim:#888; --lumiverse-border:#333; --lumiverse-primary:#aa88ef; }
+:root { --lumiverse-text:#eee; --lumiverse-text-muted:#aaa; --lumiverse-text-dim:#888; --lumiverse-border:#333; --lumiverse-primary:#aa88ef; --lumiverse-bg:#15151b; --lumiverse-bg-dark:rgba(0,0,0,.15); }
 </style></head><body style="background:#15151b;color:#eee">
 <div id="toolbar"></div><script type="module">
 import { setup } from '/frontend.js';
@@ -63,6 +63,19 @@ try {
     page.on('pageerror', (error) => errors.push(error.message))
     await page.goto(`http://127.0.0.1:${server.address().port}`)
     await page.getByRole('button', { name: 'Open Workshop' }).click()
+    if (width < 900) {
+      await page.getByRole('button', { name: 'Open prompts', exact: true }).click()
+      for (const side of ['left', 'right']) {
+        const background = await page.locator(`.workshop-rail.${side}`).evaluate((element) => {
+          const style = getComputedStyle(element)
+          return { color: style.backgroundColor, image: style.backgroundImage }
+        })
+        assert.equal(background.color, 'rgb(21, 21, 27)')
+        assert.ok(background.image.startsWith('linear-gradient('))
+      }
+      if (process.env.SANDBOX_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.SANDBOX_SCREENSHOT_DIR, `prompts-${width}.png`) })
+      await page.getByRole('button', { name: 'Open prompts', exact: true }).click()
+    }
     if (width < 900) await page.getByRole('button', { name: 'Open variables', exact: true }).click()
     const choose = async (name) => {
       await page.locator('.workshop-variable-card').filter({ has: page.locator('.workshop-variable-label', { hasText: new RegExp(`^${name}( · Mock)?$`) }) }).click()
