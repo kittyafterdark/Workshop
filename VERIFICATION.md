@@ -1,3 +1,10 @@
+# Workshop 0.4.0 verification
+
+- `bun run verify`: typecheck, 47 unit tests, and synchronized distribution build.
+- Issue-review core tests cover ordered per-prompt issues, duplicate identities, local multi-prompt fixes, caller isolation, atomic Apply, original-baseline conflicts, and reverting a fix.
+- `scripts/check-issue-review.mjs` uses the real distribution bundle with a minimal controlled native-editor/Spindle structure on desktop/mobile: draft navigation, local Save, close/reopen, batch Apply, unrelated host changes, conflicting edits, Cancel, discard, modal teardown and footer containment.
+- The controlled editor fixture is not a substitute for live Loom mounting; live checks must exercise the actual editor without applying changes to personal presets.
+
 # Workshop 0.3.9 verification
 
 - `bun run verify`: typecheck, 43 unit tests, and synchronized distribution build.

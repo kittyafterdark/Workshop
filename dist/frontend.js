@@ -329,6 +329,79 @@ function overlaySelectedDrafts(hostValue, drafts) {
   }
   return current;
 }
+function buildReviewIssues(blocks, values) {
+  const index = buildVariableIndex(blocks, values);
+  const issues = [];
+  const add = (kind, name, blockId, title, message) => {
+    if (issues.some((issue) => issue.key === JSON.stringify([kind, name, blockId])))
+      return;
+    issues.push({
+      key: JSON.stringify([kind, name, blockId]),
+      blockId,
+      title,
+      message,
+      editable: blocks.filter((block) => block.id === blockId).length === 1
+    });
+  };
+  for (const missing of index.missing)
+    for (const ref of missing.references) {
+      add("missing", missing.name, ref.blockId, "Unknown " + missing.macro, "This prompt references a variable with no definition. Correct the reference or add a definition.");
+    }
+  for (const entry of index.variables) {
+    if (entry.duplicateDefinition)
+      for (const owner of entry.definitions) {
+        add("duplicate", entry.name, owner.blockId, "Duplicate " + entry.macro, "Defined by " + entry.definitions.map((definition) => definition.blockName).join(", ") + ". Rename or remove the unintended definition.");
+      }
+    else if (entry.unused)
+      for (const owner of entry.definitions) {
+        add("unused", entry.name, owner.blockId, "Unused " + entry.macro, "No prompt references this variable. This may be intentional; keep it, reference it, or remove it.");
+      }
+  }
+  for (const id of index.duplicateBlockIds) {
+    add("block-id", id, id, "Duplicate block id: " + id, "This prompt identity is ambiguous. Repair its ID outside this review before editing it here.");
+  }
+  return issues;
+}
+
+class WorkshopIssueReview {
+  patches = new Map;
+  get size() {
+    return this.patches.size;
+  }
+  clear() {
+    this.patches.clear();
+  }
+  stage(host, source, id) {
+    const original = host.filter((block) => block.id === id);
+    const edited = source.filter((block) => block.id === id);
+    if (original.length !== 1 || edited.length !== 1)
+      return false;
+    const baseline = this.patches.get(id)?.baseline ?? JSON.stringify(original[0]);
+    if (JSON.stringify(edited[0]) === baseline)
+      this.patches.delete(id);
+    else
+      this.patches.set(id, { baseline, block: structuredClone(edited[0]) });
+    return true;
+  }
+  overlay(host) {
+    let next = [...host];
+    for (const [id, patch] of this.patches) {
+      const result = replaceUniqueBlock(next, [structuredClone(patch.block)], id);
+      if (result.ok)
+        next = result.blocks;
+    }
+    return next;
+  }
+  apply(host) {
+    for (const [id, patch] of this.patches) {
+      const matches = host.filter((block) => block.id === id);
+      if (matches.length !== 1 || JSON.stringify(matches[0]) !== patch.baseline) {
+        return { ok: false, blocks: [...host], conflict: id };
+      }
+    }
+    return { ok: true, blocks: this.overlay(host), conflict: null };
+  }
+}
 
 // src/frontend.ts
 var PREVIEW_DEBOUNCE_MS = 475;
@@ -659,6 +732,17 @@ var WORKSHOP_CSS = String.raw`
 .workshop-detail-value { min-width: 0; overflow-wrap: anywhere; color: var(--lumiverse-text); white-space: pre-line; }
 .workshop-description { margin-top: 9px; color: var(--lumiverse-text-muted); font-size: 10px; line-height: 1.45; }
 .workshop-link-button { display: block; width: 100%; margin-top: 4px; padding: 5px 7px; border: 1px solid var(--lumiverse-border, rgba(255,255,255,.08)); border-radius: 6px; background: transparent; color: var(--lumiverse-text); text-align: left; cursor: pointer; font-size: 9px; }
+.workshop-review { display: flex; flex-direction: column; height: 100%; min-height: 0; color: var(--lumiverse-text, #eee); background: var(--lumiverse-bg, #141419); }
+.workshop-review-header, .workshop-review-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; border-bottom: 1px solid var(--lumiverse-border, #333); }
+.workshop-review-header strong { flex: 1; }
+.workshop-review-issue { padding: 12px; border-bottom: 1px solid var(--lumiverse-border, #333); font-size: 12px; line-height: 1.5; }
+.workshop-review-issue h3 { margin: 0 0 4px; font-size: 14px; }
+.workshop-review-issue p { margin: 4px 0; }
+.workshop-review-editor { flex: 1; min-height: 0; overflow: auto; }
+.workshop-review-editor > * { height: 100%; min-height: 0; }
+.workshop-review-footer { border-bottom: 0; border-top: 1px solid var(--lumiverse-border, #333); }
+.workshop-review-notice { flex: 1 1 100%; font-size: 11px; color: var(--lumiverse-text-muted, #aaa); }
+.workshop-review-error { color: var(--lumiverse-warning, #e8b04c); }
 .workshop-diagnostics { min-height: 0; }
 .workshop-diagnostic-row { width: 100%; padding: 6px 7px; margin: 3px 0; border: 1px solid var(--lumiverse-warning-020, var(--lumiverse-border)); border-radius: 7px; background: var(--lumiverse-warning-015, rgba(255,180,0,.06)); color: var(--lumiverse-text); text-align: left; font-size: 9px; }
 .workshop-diagnostic-title { display: block; font-weight: 700; }
@@ -959,6 +1043,8 @@ function createWorkshopSession(ctx, onClosed) {
   const leftRailButton = root.querySelector('[data-action="left"]');
   const rightRailButton = root.querySelector('[data-action="right"]');
   const previewResizer = root.querySelector('[data-resize="preview"]');
+  const issueReview = new WorkshopIssueReview;
+  let closeIssueReview = null;
   const variableSandbox = new WorkshopVariableSandbox;
   let destroyed = false;
   let canonicalValue = initialValue;
@@ -1024,9 +1110,9 @@ function createWorkshopSession(ctx, onClosed) {
     return blockById(secondaryBlockId);
   }
   function setDraftStatus() {
-    const draftCount = Number(primaryDraftValue !== null) + Number(secondaryDraftValue !== null);
+    const draftCount = Number(primaryDraftValue !== null) + Number(secondaryDraftValue !== null) + issueReview.size;
     statusDot.classList.toggle("is-draft", draftCount > 0);
-    statusCopy.textContent = draftCount === 0 ? "Synced" : draftCount === 1 ? "1 unsaved prompt draft" : "2 unsaved prompt drafts";
+    statusCopy.textContent = draftCount === 0 ? "Synced" : draftCount === 1 ? "1 unsaved prompt draft" : `${draftCount} unsaved prompt drafts`;
   }
   function closeMobileRails() {
     root.classList.remove("mobile-left-open", "mobile-right-open");
@@ -1529,6 +1615,184 @@ function createWorkshopSession(ctx, onClosed) {
     }
     container.append(detail);
   }
+  function openIssueReview() {
+    if (destroyed || closeIssueReview)
+      return;
+    const reviewModal = ctx.ui.showModal({ title: "Review issues", width: window.innerWidth, maxHeight: window.innerHeight, persistent: true });
+    const surface = reviewModal.root;
+    const restoreChrome = installFullscreenModalChrome(surface);
+    surface.className = "workshop-review";
+    surface.innerHTML = `<header class="workshop-review-header"><strong>Review issues</strong><span data-review="position"></span><button type="button" class="workshop-text-button" data-review="close">Close</button></header>
+      <section class="workshop-review-issue" aria-live="polite"><h3 data-review="title"></h3><p data-review="prompt"></p><p data-review="message"></p><p data-review="state"></p></section>
+      <div class="workshop-review-editor" data-review="editor"></div>
+      <footer class="workshop-review-footer"><span class="workshop-review-notice" data-review="notice"></span><button class="workshop-text-button" type="button" data-review="previous">Previous</button><button class="workshop-text-button" type="button" data-review="next">Next</button><button class="workshop-text-button" type="button" data-review="recheck">Recheck</button><button class="workshop-text-button" type="button" data-review="discard">Discard fixes</button><button class="workshop-text-button" type="button" data-review="apply">Apply</button></footer>`;
+    const el = (name) => surface.querySelector(`[data-review="${name}"]`);
+    const button = (name) => el(name);
+    let queue = buildReviewIssues(issueReview.overlay(canonicalValue.blocks), canonicalValue.promptVariableValues);
+    let position = 0;
+    let transient = null;
+    let editorBase = canonicalValue.blocks;
+    let error = "";
+    let closed = false;
+    let applying = false;
+    let reviewEditor = null;
+    const current = () => queue[position];
+    const value = () => ({ blocks: issueReview.overlay(canonicalValue.blocks), promptVariableValues: canonicalValue.promptVariableValues });
+    const editable = () => Boolean(current()?.editable && canonicalValue.blocks.filter((block) => block.id === current().blockId).length === 1);
+    const retain = () => {
+      if (transient && current() && !issueReview.stage(editorBase, transient.blocks, current().blockId))
+        error = "This prompt no longer has a unique identity. Its edit could not be retained.";
+      transient = null;
+    };
+    const render = () => {
+      const issue = current();
+      const blocks = transient?.blocks ?? issueReview.overlay(canonicalValue.blocks);
+      const activeIssues = buildReviewIssues(blocks, canonicalValue.promptVariableValues);
+      el("position").textContent = issue ? `${position + 1} / ${queue.length}` : "0 issues";
+      el("title").textContent = issue?.title ?? "No remaining issues";
+      el("prompt").textContent = issue ? blocks.find((block) => block.id === issue.blockId)?.name ?? issue.blockId : "";
+      el("message").textContent = issue?.message ?? "Recheck to refresh the review queue, or Apply your local fixes.";
+      el("state").textContent = issue ? !editable() ? "Editing unavailable: missing or ambiguous prompt identity." : activeIssues.some((next) => next.key === issue.key) ? "Still present" : "Resolved locally" : "";
+      el("notice").textContent = error || `${issueReview.size} prompt fixes kept locally. Save and navigation retain valid drafts here; Apply writes the batch to the preset.`;
+      el("notice").classList.toggle("workshop-review-error", Boolean(error));
+      button("previous").disabled = position === 0;
+      button("next").disabled = position >= queue.length - 1;
+      button("apply").disabled = applying || issueReview.size === 0 && !transient || primaryDraftValue !== null || secondaryDraftValue !== null;
+      for (const action of ["previous", "next", "recheck", "discard", "close"])
+        if (applying)
+          button(action).disabled = true;
+      button("discard").disabled = issueReview.size === 0 && !transient;
+      if (primaryDraftValue || secondaryDraftValue)
+        el("notice").textContent = "Save or discard the open Workshop prompt drafts before applying review fixes.";
+    };
+    const load = () => {
+      editorBase = canonicalValue.blocks;
+      reviewEditor?.update({ value: value(), selectedBlockId: editable() ? current().blockId : null, readOnly: !editable() });
+      el("editor").hidden = !editable();
+      requestAnimationFrame(() => {
+        if (!closed)
+          decorateNativeMount(el("editor"), false);
+      });
+      render();
+    };
+    reviewEditor = ctx.components.mountLoomBlockEditor(el("editor"), {
+      value: value(),
+      selectedBlockId: editable() ? current().blockId : null,
+      compact: false,
+      readOnly: !editable(),
+      onDraftChange: (next) => {
+        if (closed)
+          return;
+        transient = next;
+        render();
+      },
+      onChange: (next) => {
+        if (closed || !current())
+          return;
+        if (!issueReview.stage(editorBase, next.blocks, current().blockId))
+          error = "Could not retain an ambiguous prompt edit.";
+        transient = null;
+        setDraftStatus();
+        render();
+      },
+      onSelectedBlockChange: () => {
+        if (!closed)
+          load();
+      }
+    });
+    const finish = () => {
+      if (closed)
+        return;
+      retain();
+      closed = true;
+      closeIssueReview = null;
+      reviewEditor?.destroy();
+      restoreChrome();
+      unsubscribe();
+      reviewModal.dismiss();
+      if (!destroyed) {
+        setDraftStatus();
+        renderVariables();
+      }
+    };
+    const unsubscribe = reviewModal.onDismiss(finish);
+    closeIssueReview = finish;
+    button("close").addEventListener("click", finish);
+    for (const [name, delta] of [["previous", -1], ["next", 1]])
+      button(name).addEventListener("click", () => {
+        retain();
+        position = Math.max(0, Math.min(queue.length - 1, position + delta));
+        load();
+        setDraftStatus();
+      });
+    button("recheck").addEventListener("click", () => {
+      retain();
+      queue = buildReviewIssues(issueReview.overlay(canonicalValue.blocks), canonicalValue.promptVariableValues);
+      position = 0;
+      load();
+      setDraftStatus();
+    });
+    button("discard").addEventListener("click", () => {
+      issueReview.clear();
+      transient = null;
+      error = "";
+      queue = buildReviewIssues(canonicalValue.blocks, canonicalValue.promptVariableValues);
+      position = 0;
+      finish();
+      openIssueReview();
+    });
+    button("apply").addEventListener("click", async () => {
+      if (applying)
+        return;
+      retain();
+      if (primaryDraftValue || secondaryDraftValue) {
+        render();
+        return;
+      }
+      let conflict = null;
+      let applied = false;
+      const host = ctx.ui.presetEditor.getState();
+      if (!host.open || host.presetId !== sessionPresetId) {
+        error = "The active preset changed. Reopen Workshop.";
+        render();
+        return;
+      }
+      ctx.ui.presetEditor.updatePreset((latest) => {
+        const result = issueReview.apply(latest.blocks);
+        if (!result.ok) {
+          conflict = result.conflict;
+          return latest;
+        }
+        applied = true;
+        return { ...latest, blocks: result.blocks };
+      });
+      if (!applied) {
+        error = `Prompt ${conflict} changed or disappeared outside this review. Your local fixes are retained; discard them to restart from the latest preset.`;
+        render();
+        return;
+      }
+      issueReview.clear();
+      applying = true;
+      render();
+      try {
+        await ctx.ui.presetEditor.flush();
+      } catch {
+        error = "Applied to the preset draft, but persistence failed. Retry saving the preset.";
+      }
+      applying = false;
+      if (closed || destroyed)
+        return;
+      button("close").disabled = false;
+      button("recheck").disabled = false;
+      queue = buildReviewIssues(canonicalValue.blocks, canonicalValue.promptVariableValues);
+      position = 0;
+      load();
+      setDraftStatus();
+      renderVariables();
+    });
+    load();
+    button("close").focus();
+  }
   function diagnosticCount(index) {
     return index.missing.length + index.variables.filter((variable) => variable.duplicateDefinition || variable.unused).length + index.duplicateBlockIds.length;
   }
@@ -1642,6 +1906,15 @@ function createWorkshopSession(ctx, onClosed) {
           renderVariables();
         });
         header.append(mode);
+      }
+      if (id === "diagnostics") {
+        const review = document.createElement("button");
+        review.type = "button";
+        review.className = "workshop-variable-pane-toggle";
+        review.textContent = issueReview.size ? `Review issues (${issueReview.size} edits)` : "Review issues";
+        review.disabled = count === 0 && issueReview.size === 0;
+        review.addEventListener("click", openIssueReview);
+        header.append(review);
       }
       header.append(toggle);
       const body = document.createElement("div");
@@ -2141,15 +2414,16 @@ function createWorkshopSession(ctx, onClosed) {
   async function closeWorkshop(force = false) {
     if (destroyed)
       return;
+    closeIssueReview?.();
     const dirtyBlocks = [
       primaryDraftValue ? selectedBlock() : null,
       secondaryDraftValue ? secondaryBlock() : null
     ].filter((block) => block !== null);
-    if (!force && dirtyBlocks.length > 0) {
+    if (!force && (dirtyBlocks.length > 0 || issueReview.size > 0)) {
       const names = dirtyBlocks.map((block) => block.name || block.id).join(", ");
       const result = await ctx.ui.showConfirm({
         title: dirtyBlocks.length > 1 ? "Discard prompt drafts?" : "Discard prompt draft?",
-        message: `${names} ${dirtyBlocks.length > 1 ? "have" : "has"} edits that have not been saved in the native Loom editor. Close Workshop and discard them?`,
+        message: `${names || "Issue review"} has unapplied edits${issueReview.size ? `, including ${issueReview.size} locally reviewed prompts` : ""}. Close Workshop and discard them?`,
         variant: "warning",
         confirmLabel: "Discard and close"
       });

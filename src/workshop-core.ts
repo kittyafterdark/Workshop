@@ -445,3 +445,74 @@ export function overlaySelectedDrafts(
   return current
 }
 
+
+export interface WorkshopReviewIssue {
+  key: string
+  blockId: string
+  title: string
+  message: string
+  editable: boolean
+}
+
+/** One review stop per affected prompt, in diagnostic order. */
+export function buildReviewIssues(blocks: readonly PromptBlockDTO[], values: PromptVariableValuesDTO): WorkshopReviewIssue[] {
+  const index = buildVariableIndex(blocks, values)
+  const issues: WorkshopReviewIssue[] = []
+  const add = (kind: string, name: string, blockId: string, title: string, message: string) => {
+    if (issues.some((issue) => issue.key === JSON.stringify([kind, name, blockId]))) return
+    issues.push({ key: JSON.stringify([kind, name, blockId]), blockId, title, message,
+      editable: blocks.filter((block) => block.id === blockId).length === 1 })
+  }
+  for (const missing of index.missing) for (const ref of missing.references) {
+    add('missing', missing.name, ref.blockId, 'Unknown ' + missing.macro,
+      'This prompt references a variable with no definition. Correct the reference or add a definition.')
+  }
+  for (const entry of index.variables) {
+    if (entry.duplicateDefinition) for (const owner of entry.definitions) {
+      add('duplicate', entry.name, owner.blockId, 'Duplicate ' + entry.macro,
+        'Defined by ' + entry.definitions.map((definition) => definition.blockName).join(', ') + '. Rename or remove the unintended definition.')
+    }
+    else if (entry.unused) for (const owner of entry.definitions) {
+      add('unused', entry.name, owner.blockId, 'Unused ' + entry.macro,
+        'No prompt references this variable. This may be intentional; keep it, reference it, or remove it.')
+    }
+  }
+  for (const id of index.duplicateBlockIds) {
+    add('block-id', id, id, 'Duplicate block id: ' + id,
+      'This prompt identity is ambiguous. Repair its ID outside this review before editing it here.')
+  }
+  return issues
+}
+
+/** Local prompt fixes with atomic, conflict-aware final application. */
+export class WorkshopIssueReview {
+  private patches = new Map<string, { baseline: string; block: PromptBlockDTO }>()
+  get size(): number { return this.patches.size }
+  clear(): void { this.patches.clear() }
+  stage(host: readonly PromptBlockDTO[], source: readonly PromptBlockDTO[], id: string): boolean {
+    const original = host.filter((block) => block.id === id)
+    const edited = source.filter((block) => block.id === id)
+    if (original.length !== 1 || edited.length !== 1) return false
+    const baseline = this.patches.get(id)?.baseline ?? JSON.stringify(original[0])
+    if (JSON.stringify(edited[0]) === baseline) this.patches.delete(id)
+    else this.patches.set(id, { baseline, block: structuredClone(edited[0]) })
+    return true
+  }
+  overlay(host: readonly PromptBlockDTO[]): PromptBlockDTO[] {
+    let next = [...host]
+    for (const [id, patch] of this.patches) {
+      const result = replaceUniqueBlock(next, [structuredClone(patch.block)], id)
+      if (result.ok) next = result.blocks
+    }
+    return next
+  }
+  apply(host: readonly PromptBlockDTO[]): { ok: boolean; blocks: PromptBlockDTO[]; conflict: string | null } {
+    for (const [id, patch] of this.patches) {
+      const matches = host.filter((block) => block.id === id)
+      if (matches.length !== 1 || JSON.stringify(matches[0]) !== patch.baseline) {
+        return { ok: false, blocks: [...host], conflict: id }
+      }
+    }
+    return { ok: true, blocks: this.overlay(host), conflict: null }
+  }
+}

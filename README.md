@@ -6,6 +6,12 @@ Workshop is a fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.4.0 issue review
+
+- Review issues beside Diagnostics opens the native Loom prompt editor with Previous/Next stops for unknown variables, duplicate definitions, unused-variable warnings, and ambiguous block IDs.
+- Save and navigation keep valid edits local; Close retains fixes for reopening within the Workshop session. Recheck rebuilds the queue from those fixes.
+- Apply writes the reviewed prompts together, preserving unrelated fresh host changes and refusing the entire batch if a touched prompt changed elsewhere. Discard fixes restarts from the latest preset.
+
 ## 0.3.9 stacked mock rows
 
 - Variable names and Mock indicators share a header with the reserved reset button; values use the full row beneath.
