@@ -739,17 +739,46 @@ var WORKSHOP_CSS = String.raw`
 .workshop-detail-value { min-width: 0; overflow-wrap: anywhere; color: var(--lumiverse-text); white-space: pre-line; }
 .workshop-description { margin-top: 9px; color: var(--lumiverse-text-muted); font-size: 10px; line-height: 1.45; }
 .workshop-link-button { display: block; width: 100%; margin-top: 4px; padding: 5px 7px; border: 1px solid var(--lumiverse-border, rgba(255,255,255,.08)); border-radius: 6px; background: transparent; color: var(--lumiverse-text); text-align: left; cursor: pointer; font-size: 9px; }
+.workshop-review, .workshop-review * { box-sizing: border-box; }
 .workshop-review { display: flex; flex-direction: column; height: 100%; min-height: 0; color: var(--lumiverse-text, #eee); background: var(--lumiverse-bg, #141419); }
-.workshop-review-header, .workshop-review-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; border-bottom: 1px solid var(--lumiverse-border, #333); }
-.workshop-review-header strong { flex: 1; }
-.workshop-review-issue { padding: 12px; border-bottom: 1px solid var(--lumiverse-border, #333); font-size: 12px; line-height: 1.5; }
-.workshop-review-issue h3 { margin: 0 0 4px; font-size: 14px; }
-.workshop-review-issue p { margin: 4px 0; }
-.workshop-review-editor { flex: 1; min-height: 0; overflow: auto; }
+.workshop-review svg { width: 17px; height: 17px; flex: 0 0 auto; }
+.workshop-review-header { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--lumiverse-border, #333); }
+.workshop-review-brand { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.workshop-review-brand > svg { width: 22px; height: 22px; color: var(--lumiverse-primary, #aa88ef); }
+.workshop-review-brand h2 { margin: 0; font-size: 15px; }
+.workshop-review-caption, .workshop-review-eyebrow { font-size: 10px; color: var(--lumiverse-text-muted, #aaa); }
+.workshop-review-caption { display: block; margin-top: 3px; }
+.workshop-review-progress { padding: 6px 10px; border: 1px solid var(--lumiverse-border, #333); border-radius: 999px; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.workshop-review-issue { margin: 14px 18px; padding: 14px 16px; border: 1px solid var(--lumiverse-border, #333); border-left: 3px solid var(--lumiverse-warning, #e8b04c); border-radius: 10px; background: linear-gradient(var(--lumiverse-warning-015, rgba(232,176,76,.06)), var(--lumiverse-warning-015, rgba(232,176,76,.06))), var(--lumiverse-bg, #141419); font-size: 12px; line-height: 1.5; }
+.workshop-review-issue.is-resolved { border-left-color: var(--lumiverse-primary, #aa88ef); }
+.workshop-review-issue-head { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+.workshop-review-eyebrow { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.workshop-review-state { margin-left: auto; padding: 3px 8px; border-radius: 6px; background: var(--lumiverse-warning-015, rgba(232,176,76,.12)); color: var(--lumiverse-warning, #e8b04c); font-size: 11px; font-weight: 650; }
+.workshop-review-issue.is-resolved .workshop-review-state { color: var(--lumiverse-primary, #aa88ef); background: var(--lumiverse-primary-010, rgba(170,136,239,.12)); }
+.workshop-review-state:empty { display: none; }
+.workshop-review-issue h3 { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.workshop-review-prompt { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--lumiverse-text-muted, #aaa); overflow-wrap: anywhere; }
+.workshop-review-issue p { margin: 8px 0 0; }
+.workshop-review-editor { flex: 1; min-height: 0; overflow: auto; border-top: 1px solid var(--lumiverse-border, #333); }
 .workshop-review-editor > * { height: 100%; min-height: 0; }
-.workshop-review-footer { border-bottom: 0; border-top: 1px solid var(--lumiverse-border, #333); }
-.workshop-review-notice { flex: 1 1 100%; font-size: 11px; color: var(--lumiverse-text-muted, #aaa); }
+.workshop-review-footer { display: grid; grid-template-columns: 1fr auto; gap: 12px 24px; padding: 14px 18px; border-top: 1px solid var(--lumiverse-border, #333); background: linear-gradient(rgba(128,128,160,.08), rgba(128,128,160,.08)), var(--lumiverse-bg, #141419); box-shadow: 0 -6px 24px rgba(0,0,0,.12); }
+.workshop-review-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.workshop-review-drafts { border-left: 1px solid var(--lumiverse-border, #333); padding-left: 24px; }
+.workshop-review-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px; padding: 8px 12px; border: 1px solid var(--lumiverse-border, #333); border-radius: 8px; background: var(--lumiverse-fill-subtle, rgba(128,128,160,.06)); color: var(--lumiverse-text, #eee); font: inherit; font-size: 12px; cursor: pointer; }
+.workshop-review-button:hover:not(:disabled) { border-color: var(--lumiverse-primary, #aa88ef); background: var(--lumiverse-primary-010, rgba(170,136,239,.1)); }
+.workshop-review-button:focus-visible { outline: 2px solid var(--lumiverse-primary, #aa88ef); outline-offset: 3px; }
+.workshop-review-button:disabled { opacity: .4; cursor: default; }
+.workshop-review-button.primary { background: var(--lumiverse-primary, #aa88ef); color: var(--lumiverse-primary-text, #101014); border-color: transparent; font-weight: 700; }
+.workshop-review-notice { grid-column: 1 / -1; font-size: 11px; color: var(--lumiverse-text-muted, #aaa); line-height: 1.4; }
 .workshop-review-error { color: var(--lumiverse-warning, #e8b04c); }
+@media (max-width: 600px) {
+  .workshop-review-header { padding: 10px 12px; gap: 8px; }
+  .workshop-review-caption { display: none; }
+  .workshop-review-issue { margin: 10px 12px; padding: 10px 12px; }
+  .workshop-review-footer { padding: 10px 12px; grid-template-columns: 1fr; gap: 10px; }
+  .workshop-review-drafts { padding-left: 0; padding-top: 10px; border-left: 0; border-top: 1px solid var(--lumiverse-border, #333); }
+  .workshop-review-button { min-height: 36px; padding: 7px 10px; }
+}
 .workshop-diagnostics { min-height: 0; }
 .workshop-diagnostic-row { width: 100%; padding: 6px 7px; margin: 3px 0; border: 1px solid var(--lumiverse-warning-020, var(--lumiverse-border)); border-radius: 7px; background: var(--lumiverse-warning-015, rgba(255,180,0,.06)); color: var(--lumiverse-text); text-align: left; font-size: 9px; }
 .workshop-diagnostic-title { display: block; font-weight: 700; }
@@ -814,6 +843,10 @@ var ICONS = {
   bottom: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 13h18"/></svg>',
   pencil: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
   columns: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16"/></svg>',
+  review: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4" width="15" height="17" rx="2"/><path d="M9 4V2h7v2M8 10l1 1 2-2M14 10h3M8 16l1 1 2-2M14 16h3"/></svg>',
+  warning: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 3 10 18H2Z"/><path d="M12 9v4M12 17h.01"/></svg>',
+  check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>',
+  undo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10h11a7 7 0 0 1 0 14M3 10l5-5M3 10l5 5" transform="translate(0 -3)"/></svg>',
   chevronDown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>'
 };
 function button(className, label, html) {
@@ -1712,13 +1745,14 @@ function createWorkshopSession(ctx, onClosed) {
     if (destroyed || closeIssueReview)
       return;
     const reviewModal = ctx.ui.showModal({ title: "Review issues", width: window.innerWidth, maxHeight: window.innerHeight, persistent: true });
+    const returnFocus = root.querySelector('[data-action="review-issues"]');
     const surface = reviewModal.root;
     const restoreChrome = installFullscreenModalChrome(surface);
     surface.className = "workshop-review";
-    surface.innerHTML = `<header class="workshop-review-header"><strong>Review issues</strong><span data-review="position"></span><button type="button" class="workshop-text-button" data-review="close">Close</button></header>
-      <section class="workshop-review-issue" aria-live="polite"><h3 data-review="title"></h3><p data-review="prompt"></p><p data-review="message"></p><p data-review="state"></p></section>
-      <div class="workshop-review-editor" data-review="editor"></div>
-      <footer class="workshop-review-footer"><span class="workshop-review-notice" data-review="notice"></span><button class="workshop-text-button" type="button" data-review="previous">Previous</button><button class="workshop-text-button" type="button" data-review="next">Next</button><button class="workshop-text-button" type="button" data-review="recheck">Recheck</button><button class="workshop-text-button" type="button" data-review="discard">Discard drafts</button><button class="workshop-text-button" type="button" data-review="apply">Apply</button></footer>`;
+    surface.innerHTML = `<header class="workshop-review-header"><div class="workshop-review-brand">${ICONS.review}<div><h2>Review issues</h2><span class="workshop-review-caption">Preset diagnostics</span></div></div><span class="workshop-review-progress" data-review="position"></span><button type="button" class="workshop-review-button" data-review="close">${ICONS.close}<span>Close</span></button></header>
+      <section class="workshop-review-issue" aria-label="Current issue"><div class="workshop-review-issue-head"><span class="workshop-review-eyebrow">${ICONS.warning}Current issue</span><span class="workshop-review-state" data-review="state" role="status"></span></div><h3 data-review="title"></h3><div class="workshop-review-prompt">${ICONS.pencil}<span data-review="prompt"></span></div><p data-review="message"></p></section>
+      <section class="workshop-review-editor" data-review="editor" aria-label="Prompt editor"></section>
+      <footer class="workshop-review-footer"><nav aria-label="Issue navigation"><span class="workshop-review-eyebrow">Review queue</span><div class="workshop-review-controls"><button class="workshop-review-button" type="button" data-review="previous">${ICONS.left}<span>Previous</span></button><button class="workshop-review-button" type="button" data-review="next"><span>Next</span>${ICONS.right}</button><button class="workshop-review-button" type="button" data-review="recheck">${ICONS.refresh}<span>Recheck</span></button></div></nav><div class="workshop-review-drafts" role="group" aria-label="Local drafts"><span class="workshop-review-eyebrow" data-review="drafts">No unsynced drafts</span><div class="workshop-review-controls"><button class="workshop-review-button" type="button" data-review="discard">${ICONS.undo}<span>Discard drafts</span></button><button class="workshop-review-button primary" type="button" data-review="apply">${ICONS.check}<span>Apply</span></button></div></div><span class="workshop-review-notice" data-review="notice">Save keeps edits local. Apply syncs your draft batch.</span></footer>`;
     const el = (name) => surface.querySelector(`[data-review="${name}"]`);
     const button = (name) => el(name);
     retainEditorDrafts(["primary", "secondary"]);
@@ -1747,7 +1781,13 @@ function createWorkshopSession(ctx, onClosed) {
       el("prompt").textContent = issue ? blocks.find((block) => block.id === issue.blockId)?.name ?? issue.blockId : "";
       el("message").textContent = issue?.message ?? "Recheck to refresh the review queue, or Apply your local fixes.";
       el("state").textContent = issue ? !editable() ? "Editing unavailable: missing or ambiguous prompt identity." : activeIssues.some((next) => next.key === issue.key) ? "Still present" : "Resolved locally" : "";
-      el("notice").textContent = error || `${issueReview.size} prompt drafts kept locally. Save and navigation retain valid drafts here; Apply writes all local drafts to the preset.`;
+      el("drafts").textContent = issueReview.size ? `${issueReview.size} unsynced prompt${issueReview.size === 1 ? "" : "s"}` : "No unsynced drafts";
+      el("notice").textContent = error || "Save keeps edits local. Apply syncs your draft batch.";
+      if (error)
+        el("notice").setAttribute("role", "alert");
+      else
+        el("notice").removeAttribute("role");
+      surface.querySelector(".workshop-review-issue").classList.toggle("is-resolved", Boolean(issue && !activeIssues.some((next) => next.key === issue.key)));
       el("notice").classList.toggle("workshop-review-error", Boolean(error));
       button("previous").disabled = position === 0;
       button("next").disabled = position >= queue.length - 1;
@@ -1804,8 +1844,16 @@ function createWorkshopSession(ctx, onClosed) {
       restoreChrome();
       unsubscribe();
       reviewModal.dismiss();
-      if (!destroyed)
+      if (!destroyed) {
         refreshLocalDrafts();
+        const launcher = root.querySelector('[data-action="review-issues"]');
+        if (launcher && !launcher.disabled)
+          launcher.focus();
+        else if (returnFocus?.isConnected)
+          returnFocus.focus();
+        else
+          root.focus();
+      }
     };
     const unsubscribe = reviewModal.onDismiss(finish);
     closeIssueReview = finish;
@@ -1975,6 +2023,7 @@ function createWorkshopSession(ctx, onClosed) {
       if (id === "diagnostics") {
         const review = document.createElement("button");
         review.type = "button";
+        review.dataset.action = "review-issues";
         review.className = "workshop-variable-pane-toggle";
         review.textContent = issueReview.size ? `Review issues (${issueReview.size} edits)` : "Review issues";
         review.disabled = count === 0 && issueReview.size === 0;

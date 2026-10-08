@@ -6,6 +6,12 @@ Workshop is a fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.5.1 reviewer polish
+
+- Issue cards separate the current diagnostic, prompt name, and resolution status.
+- SVG controls and labeled navigation/draft groups make the review workflow clearer; Apply is the primary action.
+- Mobile controls stack into separate groups, and closing review returns keyboard focus to its launcher.
+
 ## 0.5.0 unsynced editing
 
 - The variable rail starts in sections view so All variables and Diagnostics are both visible.

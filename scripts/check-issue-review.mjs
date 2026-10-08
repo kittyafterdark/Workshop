@@ -10,6 +10,8 @@ const bundle = await readFile(new URL('../dist/frontend.js', import.meta.url))
 const fixture = `<!doctype html><html><style>
 *{box-sizing:border-box}html,body{height:100%;margin:0;font-family:Arial;background:#17171e;color:#eee}
 :root{--lumiverse-bg:#17171e;--lumiverse-text:#eee;--lumiverse-border:#444;--lumiverse-text-muted:#aaa}
+/* Controlled notched-phone representation; production uses the host's canonical variables. */
+@media(max-width:900px){:root{--app-interactive-safe-top:54px;--app-interactive-viewport-height:calc(100dvh - var(--app-interactive-safe-top))}}
 </style><body><div id="toolbar"></div><script type="module">
 import { setup } from '/frontend.js';
 const block=(id,content)=>({id,name:id,content,role:'system',enabled:true,position:'pre_history',depth:0,marker:null,isLocked:false,color:null,injectionTrigger:[],group:null});
@@ -28,7 +30,8 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 const browser = await chromium.launch({ headless: true })
 try {
   for (const width of [1440, 390]) {
-    const page = await browser.newPage({ viewport: { width, height: 900 } })
+    const height = width < 900 ? 844 : 900
+    const page = await browser.newPage({ viewport: { width, height } })
     const errors = []
     page.on('pageerror', e => errors.push(e.message))
     await page.goto(`http://127.0.0.1:${server.address().port}`)
@@ -85,11 +88,21 @@ try {
     assert.equal(await page.locator('[data-variable-pane="diagnostics"]').isVisible(), true)
     await page.getByRole('button', { name: 'Review issues', exact: true }).click()
     const review = page.locator('.workshop-review')
+    assert.equal(await review.getByRole('navigation', { name: 'Issue navigation' }).count(), 1)
+    assert.equal(await review.getByRole('group', { name: 'Local drafts' }).count(), 1)
+    assert.equal(await review.getByRole('region', { name: 'Current issue' }).count(), 1)
+    assert.equal(await review.getByRole('region', { name: 'Prompt editor' }).count(), 1)
+    assert.equal(await review.getByRole('button', { name: 'Close', exact: true }).evaluate(el => el === document.activeElement), true)
+    assert.equal(await review.locator('svg').evaluateAll(els => els.every(el => el.getAttribute('aria-hidden') === 'true')), true)
+    assert.equal(await page.evaluate(() => { const ids = [...document.querySelectorAll('[id]')].map(el => el.id); return ids.length === new Set(ids).size }), true)
+    const closeBox = await review.getByRole('button', { name: 'Close', exact: true }).boundingBox()
+    assert.ok(closeBox.y >= (width < 900 ? 54 : 0))
+    assert.equal(await review.getByRole('button', { name: 'Previous', exact: true }).isDisabled(), true)
     assert.equal(await review.locator('[data-review="position"]').textContent(), '1 / 2')
     await review.getByLabel('Native content').fill('fixed one')
     await review.getByRole('button', { name: 'Next', exact: true }).click()
     assert.equal(await review.getByLabel('Native content').inputValue(), '{{var::missing_two}}')
-    await review.getByRole('button', { name: 'Previous', exact: true }).click()
+    await review.getByRole('button', { name: 'Previous', exact: true }).press('Enter')
     assert.equal(await review.getByLabel('Native content').inputValue(), 'fixed one')
     await review.getByRole('button', { name: 'Next', exact: true }).click()
     await review.getByLabel('Native content').fill('fixed two')
@@ -98,6 +111,7 @@ try {
     assert.equal(await page.evaluate(() => window.writes), 0)
     assert.equal(await page.evaluate(() => window.snapshot().blocks[0].content), '{{var::missing_one}}')
     await review.getByRole('button', { name: 'Close', exact: true }).click()
+    assert.equal(await page.getByRole('button', { name: /Review issues/ }).evaluate(el => el === document.activeElement), true)
     await page.getByRole('button', { name: /Review issues/ }).click()
     assert.equal(await review.locator('[data-review="title"]').textContent(), 'No remaining issues')
     await page.evaluate(() => window.external('other'))
@@ -125,7 +139,7 @@ try {
     assert.equal(await review.getByLabel('Native content').inputValue(), '{{var::missing_two}}')
     await review.getByRole('button', { name: 'Next', exact: true }).isDisabled()
     const applyBox = await review.getByRole('button', { name: 'Apply', exact: true }).boundingBox()
-    assert.ok(applyBox.x >= 0 && applyBox.x + applyBox.width <= width && applyBox.y + applyBox.height <= 900)
+    assert.ok(applyBox.x >= 0 && applyBox.x + applyBox.width <= width && applyBox.y + applyBox.height <= height)
     if (process.env.SANDBOX_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.SANDBOX_SCREENSHOT_DIR, `issue-review-${width}.png`) })
     await review.getByRole('button', { name: 'Close', exact: true }).click()
     assert.equal(await page.evaluate(() => window.mounts - window.destroys), 2)
