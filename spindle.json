@@ -1,5 +1,5 @@
 {
-  "version": "0.5.1",
+  "version": "0.6.0",
   "name": "Workshop",
   "identifier": "workshop",
   "author": "Kitty Lotus",
@@ -9,7 +9,8 @@
   "permissions": [
     "presets",
     "ui_panels",
-    "generation"
+    "generation",
+    "ephemeral_storage"
   ],
   "entry_backend": "dist/backend.js",
   "entry_frontend": "dist/frontend.js"

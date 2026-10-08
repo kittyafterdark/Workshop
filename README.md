@@ -6,6 +6,13 @@ Workshop is a fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.6.0 preset backups
+
+- Open Preset backups from the archive icon in the Workshop header. Create backup captures your current local work; every Apply first saves the previous host preset. Storage failure prevents Apply and retains local edits.
+- Uses the public `spindle.ephemeral` API with `ephemeral_storage` permission. Paths are `storage/<safe-preset-name>/backups/YYYY-MM-DD HH-mm-ss.SSS UTC--<unique-id>.json`. Each snapshot has a seven-day TTL. Cleanup runs at extension startup, hourly while loaded, and on backup operations; overdue files are removed when the extension resumes. No browser storage or backup-count cap.
+- Backups include the public preset draft: name, blocks (including variable definitions), parameters, prompts, and metadata. Live variable selections stay under Lumi’s control, and preview mocks are excluded. Backups remain discoverable after a preset rename and are filtered by preset identity and requesting user.
+- Restore locally stages the entire public preset and saves a recovery snapshot of your existing local work first. Inspect or edit its prompts, then Apply restore. Discard drafts cancels it. A host change after staging refuses the entire restore.
+
 ## 0.5.1 reviewer polish
 
 - Issue cards separate the current diagnostic, prompt name, and resolution status.
@@ -135,7 +142,7 @@ Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types
 
 ## State model
 
-Lumiverse remains authoritative. Workshop keeps a detached host mirror, then overlays at most one transient draft per open editor lane for display/preview. Native editor Save is the only path that writes; each commit replaces only its selected block in the newest host draft and fails closed if that identity is missing or ambiguous.
+Lumiverse remains authoritative. Workshop overlays its shared local prompt batch and at most one transient draft per open editor lane for display and preview. Native Save retains local edits; final Apply writes the batch after saving a pre-Apply backup. Normal editing replaces only touched unique blocks against their original baselines. A staged preset restore instead overlays the full public preset draft, preserves the host identity and timestamps, and requires the host’s editable data to remain unchanged until Apply.
 
 This prevents a stale editor snapshot from overwriting unrelated host/profile changes while one or two prompts are being edited.
 
@@ -146,6 +153,8 @@ bun install
 bun run verify
 # Requires Playwright, or PLAYWRIGHT_MODULE pointing to its index.mjs:
 node scripts/check-variable-sandbox.mjs
+# Real frontend/backend bundles, mocked native editor and ephemeral storage:
+node scripts/check-issue-review.mjs
 ```
 
 Build output is written to `dist/frontend.js` and `dist/backend.js`.

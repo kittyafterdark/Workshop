@@ -7,6 +7,7 @@ import { join } from 'node:path'
 // Same controlled-boundary approach as Lumiverse's e2e-diagnostics harness.
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ? pathToFileURL(process.env.PLAYWRIGHT_MODULE).href : 'playwright')
 const bundle = await readFile(new URL('../dist/frontend.js', import.meta.url))
+const backend = await readFile(new URL('../dist/backend.js', import.meta.url))
 const fixture = `<!doctype html><html><style>
 *{box-sizing:border-box}html,body{height:100%;margin:0;font-family:Arial;background:#17171e;color:#eee}
 :root{--lumiverse-bg:#17171e;--lumiverse-text:#eee;--lumiverse-border:#444;--lumiverse-text-muted:#aaa}
@@ -16,16 +17,25 @@ const fixture = `<!doctype html><html><style>
 import { setup } from '/frontend.js';
 const block=(id,content)=>({id,name:id,content,role:'system',enabled:true,position:'pre_history',depth:0,marker:null,isLocked:false,color:null,injectionTrigger:[],group:null});
 let preset={id:'fixture',name:'Review fixture',blocks:[block('one','{{var::missing_one}}'),block('two','{{var::missing_two}}'),block('other','untouched')],parameters:{},prompts:{},metadata:{},createdAt:0,updatedAt:0};
+const responses=new Set();
+window.spindle={ephemeral:{
+ async read(path){const entry=JSON.parse(localStorage.getItem('backup:'+path)||'null');if(!entry||entry.expiresAt<=Date.now())throw Error('Missing');return entry.text},
+ async write(path,text,options){if(window.backupDelay)await new Promise(resolve=>{window.releaseBackup=resolve});if(window.backupFailure)throw Error('Full');localStorage.setItem('backup:'+path,JSON.stringify({text,expiresAt:Date.now()+options.ttlMs}))},
+ async list(prefix=''){return Object.keys(localStorage).filter(key=>key.startsWith('backup:'+prefix)).map(key=>key.slice(('backup:'+prefix).length).replaceAll('/',String.fromCharCode(92)))},
+ async clearExpired(){let count=0;for(const key of Object.keys(localStorage))if(key.startsWith('backup:')&&JSON.parse(localStorage.getItem(key)).expiresAt<=Date.now()){localStorage.removeItem(key);count++}return count}
+},onFrontendMessage(fn){window.backendHandler=fn},sendToFrontend(data){for(const fn of responses)fn(data)},log:{info(){}}};
+await import('/backend.js');
 const listeners=new Set();window.writes=0;window.flushes=0;window.mounts=0;window.destroys=0;
 window.snapshot=()=>structuredClone(preset);
 window.external=(id)=>{preset.blocks=preset.blocks.map(b=>b.id===id?{...b,content:'external change'}:b);for(const fn of listeners)fn(state());};
 const state=()=>({open:true,presetId:'fixture',preset:structuredClone(preset)});
-setup({dom:{addStyle(css){let s=document.createElement('style');s.textContent=css;document.head.append(s);return()=>s.remove();}},getActiveChat:()=>({chatId:null}),onBackendMessage:()=>()=>{},sendToBackend(){},
-ui:{mount:()=>document.querySelector('#toolbar'),presetEditor:{getState:state,extension:{getState:()=>({presetId:'fixture',blocks:structuredClone(preset.blocks),promptVariableValues:{}})},onChange(fn){listeners.add(fn);return()=>listeners.delete(fn);},updatePreset(fn){const next=fn(preset);if(next!==preset)window.writes++;preset=next;for(const cb of listeners)cb(state());},flush:async()=>{window.flushes++;}},showConfirm:async()=>({confirmed:true}),showModal(){let back=document.createElement('div');back.style.cssText='position:fixed;inset:0;display:flex';let c=document.createElement('div'),h=document.createElement('header'),b=document.createElement('div'),root=document.createElement('div');b.append(root);c.append(h,b);back.append(c);document.body.append(back);const callbacks=new Set();return{root,dismiss(){back.remove();for(const fn of callbacks)fn();},onDismiss(fn){callbacks.add(fn);return()=>callbacks.delete(fn);}};}},
+window.changeShape=()=>{preset.blocks=preset.blocks.filter(block=>block.id!=='two');preset.blocks.push(block('extra','new outside block'));preset.parameters={temperature:2};for(const fn of listeners)fn(state());};
+setup({dom:{addStyle(css){let s=document.createElement('style');s.textContent=css;document.head.append(s);return()=>s.remove();}},getActiveChat:()=>({chatId:null}),onBackendMessage(fn){responses.add(fn);return()=>responses.delete(fn)},sendToBackend(data){window.backendHandler(data,'fixture-user')},
+ui:{mount:()=>document.querySelector('#toolbar'),presetEditor:{getState:state,extension:{getState:()=>({presetId:'fixture',blocks:structuredClone(preset.blocks),promptVariableValues:{}})},onChange(fn){listeners.add(fn);return()=>listeners.delete(fn);},updatePreset(fn){const next=fn(preset);if(next!==preset)window.writes++;preset=next;for(const cb of listeners)cb(state());},flush:async()=>{window.flushes++;}},showConfirm:async()=>({confirmed:true}),showModal(options){let back=document.createElement('div');back.style.cssText='position:fixed;inset:0;display:flex';let c=document.createElement('div'),h=document.createElement('header'),b=document.createElement('div'),root=document.createElement('div');c.setAttribute('role','dialog');c.setAttribute('aria-modal','true');c.setAttribute('aria-label',options.title);b.append(root);c.append(h,b);back.append(c);document.body.append(back);const callbacks=new Set();return{root,dismiss(){back.remove();for(const fn of callbacks)fn();},onDismiss(fn){callbacks.add(fn);return()=>callbacks.delete(fn);}};}},
 components:{mountLoomBlockEditor(target,initial){window.mounts++;let opts=initial;const render=()=>{target.replaceChildren();let block=opts.value.blocks.find(b=>b.id===opts.selectedBlockId);if(!block||opts.readOnly)return;let box=document.createElement('div'),text=document.createElement('textarea'),save=document.createElement('button'),cancel=document.createElement('button');box.style.cssText='padding:16px;overflow:auto';text.setAttribute('aria-label','Native content');text.style.cssText='width:100%;height:260px';text.value=block.content;save.textContent='Save';cancel.textContent='Cancel';let draft=()=>({...opts.value,blocks:opts.value.blocks.map(b=>b.id===block.id?{...b,content:text.value}:b)});text.addEventListener('input',()=>opts.onDraftChange?.(draft()));save.onclick=()=>{const next=draft();opts.onChange?.(next);opts.value=next;opts.onDraftChange?.(null);opts.onSelectedBlockChange?.(null);};cancel.onclick=()=>{opts.onDraftChange?.(null);render();};box.append(text,save,cancel);target.append(box);};render();return{update(next){opts={...opts,...next};render();},destroy(){window.destroys++;target.replaceChildren();},getValue:()=>opts.value};}}
 });
 </script></body></html>`
-const server = createServer((req, res) => { res.setHeader('Content-Type', req.url === '/frontend.js' ? 'text/javascript' : 'text/html'); res.end(req.url === '/frontend.js' ? bundle : fixture) })
+const server = createServer((req, res) => { res.setHeader('Content-Type', req.url.endsWith('.js') ? 'text/javascript' : 'text/html'); res.end(req.url === '/frontend.js' ? bundle : req.url === '/backend.js' ? backend : fixture) })
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
 const browser = await chromium.launch({ headless: true })
 try {
@@ -143,8 +153,98 @@ try {
     if (process.env.SANDBOX_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.SANDBOX_SCREENSHOT_DIR, `issue-review-${width}.png`) })
     await review.getByRole('button', { name: 'Close', exact: true }).click()
     assert.equal(await page.evaluate(() => window.mounts - window.destroys), 2)
+    // Exercise both real bundles through a controlled ephemeral-storage boundary.
+    await page.reload()
+    await page.evaluate(() => localStorage.clear())
+    await page.getByRole('button', { name: 'Open Workshop', exact: true }).click()
+    await selectPrompt('one')
+    await page.locator('[data-role="editor-mount"]').getByLabel('Native content').fill('manual local')
+    const backups = page.locator('.workshop-backups')
+    const ready = () => backups.getByText('Ready. Restoring stages changes locally; Apply syncs them.', { exact: true }).waitFor()
+    const openBackups = async () => { await page.getByRole('button', { name: 'Preset backups', exact: true }).click(); await ready() }
+    await openBackups()
+    assert.equal(await page.getByRole('dialog', { name: 'Preset backups', exact: true }).count(), 1)
+    assert.equal(await backups.getByRole('button', { name: 'Close', exact: true }).evaluate(el => el === document.activeElement), true)
+    await backups.getByRole('button', { name: 'Create backup', exact: true }).click()
+    await ready()
+    assert.equal(await backups.locator('.workshop-backup-row').count(), 1)
+    const path = await backups.locator('.workshop-backup-row code').textContent()
+    assert.match(path, /^storage\/Review fixture\/backups\/.* UTC--.*\.json$/)
+    assert.equal(await page.evaluate(() => window.writes), 0)
+    if (process.env.SANDBOX_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.SANDBOX_SCREENSHOT_DIR, `preset-backups-${width}.png`) })
+    await backups.getByRole('button', { name: 'Close', exact: true }).press('Enter')
+    assert.equal(await page.getByRole('button', { name: 'Preset backups', exact: true }).evaluate(el => el === document.activeElement), true)
+    await page.locator('[data-role="editor-mount"]').getByLabel('Native content').fill('applied later')
+    await page.locator('[data-action="apply-drafts"]').click()
+    await page.locator('[data-action="apply-drafts"]').waitFor({ state: 'hidden' })
+    await page.evaluate(() => window.changeShape())
+    await openBackups()
+    assert.equal(await backups.locator('.workshop-backup-row').count(), 2)
+    await backups.locator('.workshop-backup-row').filter({ hasText: 'Manual · local work' }).getByRole('button', { name: /Restore locally/ }).click()
+    await backups.waitFor({ state: 'hidden' })
+    assert.equal(await page.locator('[data-role="editor-mount"]').getByLabel('Native content').inputValue(), 'manual local')
+    assert.deepEqual(await page.evaluate(() => window.snapshot().blocks.map(block=>block.id)), ['one','other','extra'])
+    assert.equal(await page.evaluate(() => window.writes), 1)
+    assert.equal(await page.evaluate(() => Object.keys(localStorage).filter(key=>key.startsWith('backup:')).map(key=>JSON.parse(JSON.parse(localStorage.getItem(key)).text)).some(backup=>backup.kind==='manual'&&backup.preset.blocks.some(block=>block.id==='extra')&&backup.preset.blocks[0].content==='applied later')), true)
+    assert.equal(await page.getByRole('button', { name: 'Apply restore', exact: true }).isVisible(), true)
+    if (width < 900) await page.getByRole('button', { name: 'Open prompts', exact: true }).click()
+    await page.getByRole('button', { name: 'Open two beside current prompt', exact: true }).click()
+    assert.equal(await page.locator('[data-role="secondary-editor-mount"]').getByLabel('Native content').inputValue(), '{{var::missing_two}}')
+    if (width < 900) await page.getByRole('button', { name: 'Open prompts', exact: true }).click()
+    await page.getByRole('button', { name: 'Close second prompt', exact: true }).click()
+    await page.locator('[data-role="editor-mount"]').getByLabel('Native content').fill('edited restore')
+    await page.locator('[data-role="editor-mount"]').getByRole('button', { name: 'Save', exact: true }).click()
+    await page.getByRole('button', { name: 'Apply restore', exact: true }).click()
+    await page.locator('[data-action="apply-drafts"]').waitFor({ state: 'hidden' })
+    assert.deepEqual(await page.evaluate(() => window.snapshot().blocks.map(b => b.content)), ['edited restore','{{var::missing_two}}','untouched'])
+    assert.deepEqual(await page.evaluate(() => window.snapshot().parameters), {})
+    assert.equal(await page.evaluate(() => window.writes), 2)
+    await openBackups()
+    await backups.locator('.workshop-backup-row').filter({ hasText: path }).getByRole('button', { name: /Restore locally/ }).click()
+    await backups.waitFor({ state: 'hidden' })
+    await page.evaluate(() => window.external('other'))
+    await page.getByRole('button', { name: 'Apply restore', exact: true }).click()
+    await page.getByRole('button', { name: 'Apply restore', exact: true }).waitFor({ state: 'visible' })
+    await page.locator('[data-role="draft-notice"]').getByText(/changed or disappeared/).waitFor()
+    assert.equal(await page.evaluate(() => window.writes), 2)
+    await page.locator('[data-action="discard-drafts"]').click()
+    assert.equal(await page.locator('[data-action="apply-drafts"]').isVisible(), false)
+    await selectPrompt('one')
+    assert.equal(await page.locator('[data-role="editor-mount"]').getByLabel('Native content').inputValue(), 'edited restore')
+    // Storage failure must block Apply and retain the current local edit.
+    await page.locator('[data-role="editor-mount"]').getByLabel('Native content').fill('unsynced full-pool edit')
+    await page.evaluate(() => { window.backupFailure = true })
+    await page.locator('[data-action="apply-drafts"]').click()
+    await page.locator('[data-role="draft-notice"]').getByText(/storage is unavailable/).waitFor()
+    assert.equal(await page.evaluate(() => window.writes), 2)
+    assert.equal(await page.locator('[data-role="editor-mount"]').getByLabel('Native content').inputValue(), 'unsynced full-pool edit')
+    await page.evaluate(() => { window.backupFailure = false; window.backupDelay = true })
+    await page.locator('[data-action="apply-drafts"]').click()
+    assert.equal(await page.locator('.workshop-shell').evaluate(el => el.inert), true)
+    assert.equal(await page.locator('.workshop-shell').getAttribute('aria-busy'), 'true')
+    await page.keyboard.type('must not enter the editor')
+    await page.evaluate(() => { window.backupDelay = false; window.releaseBackup() })
+    await page.locator('[data-action="apply-drafts"]').waitFor({ state: 'hidden' })
+    assert.equal(await page.locator('.workshop-shell').evaluate(el => el.inert), false)
+    assert.equal(await page.locator('.workshop-shell').evaluate(el => el.contains(document.activeElement)), true)
+    assert.equal(await page.evaluate(() => window.snapshot().blocks[0].content), 'unsynced full-pool edit')
+    await page.reload()
+    await page.getByRole('button', { name: 'Open Workshop', exact: true }).click()
+    await openBackups()
+    assert.ok(await backups.locator('.workshop-backup-row').count() >= 5)
+    const closeBounds = await backups.getByRole('button', { name: 'Close', exact: true }).boundingBox()
+    const createBounds = await backups.getByRole('button', { name: 'Create backup', exact: true }).boundingBox()
+    assert.ok(closeBounds.y >= (width < 900 ? 54 : 0))
+    assert.ok(createBounds.x >= 0 && createBounds.x + createBounds.width <= width && createBounds.y + createBounds.height <= height)
+    // Simulate restart after expiry without waiting a week or touching live storage.
+    await page.evaluate(() => { for (const key of Object.keys(localStorage)) if (key.startsWith('backup:')) { const value=JSON.parse(localStorage.getItem(key)); value.expiresAt=Date.now()-1; localStorage.setItem(key,JSON.stringify(value)) } })
+    await backups.getByRole('button', { name: 'Refresh', exact: true }).click()
+    await ready()
+    assert.equal(await backups.locator('.workshop-backup-row').count(), 0)
+    assert.equal(await page.evaluate(() => Object.keys(localStorage).filter(key=>key.startsWith('backup:')).length), 0)
+    await backups.getByRole('button', { name: 'Close', exact: true }).click()
     assert.deepEqual(errors, [])
-    console.log(`PASS issue review navigation, local Save, reopen, batch Apply, conflicts, cancel, cleanup and layout: ${width}px`)
+    console.log(`PASS reviewer + backups: local Save, batch Apply, restore/edit, storage refusal, expiry, reload, keyboard and safe-area layout: ${width}px`)
     await page.close()
   }
 } finally { await browser.close(); server.close() }
