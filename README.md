@@ -6,6 +6,15 @@ Workshop is a fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.7.0 agent workspace
+
+- Enter **Agent** from the Workshop header. The local prompt editor works without MCP or a model connection; select a Lumi connection to send instructions to the assistant. The existing assembly preview follows the staged blocks and preview mocks.
+- All manual and generated edits remain local. **Apply drafts** requires confirmation, creates the existing pre-Apply backup, and applies the batch atomically. Leaving agent mode (including Workshop's close button) asks whether to keep drafts in Workshop, discard all unsynced edits, or stay. Kept agent drafts still require Apply confirmation outside agent mode. Closing Workshop after leaving discards its session drafts as before.
+- Reads include the entire mounted public preset, block/category structure, variable definitions and current values, references/diagnostics, settings/regex metadata, preview mocks/results, and local changes. Actual live variable selections remain under Lumi's control. Settings, regex metadata, variable definitions and mocks are read-only in the agent tool surface in this release.
+- Draft tools edit prompt content, names, role/depth, enabled state and order, and insert/delete prompts. Locked prompts, ambiguous identities and category edits are refused. Generated runs are staged only after completion and only if the local draft and host preset still match their original snapshots. Stop, timeout, provider failure and the bounded tool loop retain prior drafts without staging partial generated edits.
+- Built-in inline tools work without an MCP server. Optional **PresetTools compatibility** discovers an existing enabled Lumi MCP server and reports supported names. Supported file-tool names are implemented against `workshop://draft` with Workshop's schemas; no remote file tool is executed. Full replacement content is supported; unified diffs, arbitrary filesystem paths, unsupported arguments and save/Apply tools are rejected. This is a bounded compatibility subset, not a general MCP agent.
+- Uses public generation/connection/MCP APIs; `mcp_servers` is newly declared for optional discovery. Connection inventory exposes names/models/IDs, without credentials. Sending context uses the selected Lumi connection. Conversations and agent runs last only for the current agent workspace session.
+
 ## 0.6.0 preset backups
 
 - Open Preset backups from the archive icon in the Workshop header. Create backup captures your current local work; every Apply first saves the previous host preset. Storage failure prevents Apply and retains local edits.

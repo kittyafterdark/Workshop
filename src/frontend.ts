@@ -29,6 +29,8 @@ import {
   type WorkshopVariableIndex,
 } from './workshop-core.js'
 
+import { AgentWorkspace, AGENT_CSS, confirmAgentApply } from './agent-workspace.js'
+
 const PREVIEW_DEBOUNCE_MS = 475
 const CHAT_WATCH_MS = 1250
 const MOBILE_BREAKPOINT = 900
@@ -620,6 +622,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       <div class="workshop-header-left">
         <button class="workshop-icon-button workshop-mobile-only" type="button" data-action="mobile-left" aria-label="Open prompts">${ICONS.right}</button>
         <span class="workshop-header-brand">Workshop</span>
+        <button class="workshop-text-button" type="button" data-action="agent" aria-pressed="false">Agent</button>
       </div>
       <span class="workshop-preset-name"></span>
       <div class="workshop-header-actions">
@@ -723,6 +726,9 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
 
   const issueReview = new WorkshopIssueReview()
   let pendingRestore: PresetRestoreDraft | null = null
+  let agentWorkspace: AgentWorkspace | null = null
+  let agentDraftsPending = false
+  let agentBaseline: string | null = null
   let closeBackups: (() => void) | null = null
   let closeIssueReview: (() => void) | null = null
   let activeReviewSurface: HTMLElement | null = null
@@ -809,11 +815,11 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     const draftCount = Number(Boolean(pendingRestore)) + new Set([...issueReview.blockIds, ...(primaryDraftValue && selectedBlockId ? [selectedBlockId] : []), ...(secondaryDraftValue && secondaryBlockId ? [secondaryBlockId] : [])]).size
     root.classList.toggle('has-unsynced', draftCount > 0)
     const apply = root.querySelector<HTMLButtonElement>('[data-action="apply-drafts"]')!
-    apply.textContent = pendingRestore ? 'Apply restore' : `Apply (${draftCount})`
+    apply.textContent = agentDraftsPending ? 'Apply drafts' : pendingRestore ? 'Apply restore' : `Apply (${draftCount})`
     apply.disabled = draftCount === 0 || applyingDrafts
     root.querySelector<HTMLButtonElement>('[data-action="discard-drafts"]')!.disabled = draftCount === 0 || applyingDrafts
     statusDot.classList.toggle('is-draft', draftCount > 0)
-    statusCopy.textContent = pendingRestore ? 'Unsynced preset restore' : draftCount === 0
+    statusCopy.textContent = agentDraftsPending ? 'Unsynced agent drafts' : pendingRestore ? 'Unsynced preset restore' : draftCount === 0
       ? 'Synced'
       : draftCount === 1
         ? '1 unsynced prompt'
@@ -1326,11 +1332,13 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     setDraftStatus()
     schedulePreview()
     scheduleNativeDecoration()
+    agentWorkspace?.refresh()
   }
 
   function discardLocalDrafts(): void {
     issueReview.clear()
     pendingRestore = null
+    agentDraftsPending = false
     primaryDraftValue = null
     secondaryDraftValue = null
     if (!baseBlocks().some(block => block.id === selectedBlockId)) selectedBlockId = null
@@ -1349,6 +1357,12 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
 
   async function applyLocalDrafts(): Promise<string | null> {
     if (applyingDrafts) return 'A batch is already being applied.'
+    if (agentWorkspace?.busy) return 'Stop the agent or wait for it to finish before Apply.'
+    if (agentWorkspace || agentDraftsPending) {
+      const confirmed = await confirmAgentApply(activeReviewSurface ?? root)
+      if (!confirmed || destroyed) return 'Apply cancelled. Drafts remain local.'
+      if (applyingDrafts || agentWorkspace?.busy) return 'The workspace changed during confirmation. Try Apply again.'
+    }
     if (!retainEditorDrafts(['primary', 'secondary'])) return 'A prompt draft has an ambiguous identity.'
     if (issueReview.size === 0 && !pendingRestore) { refreshLocalDrafts(); return null }
     const host = ctx.ui.presetEditor.getState()
@@ -1379,6 +1393,8 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       if (!applied) return `Prompt ${conflict} changed or disappeared outside Workshop. Your local drafts are retained. Discard drafts to restart from the latest preset.`
       issueReview.clear()
       pendingRestore = null
+      agentDraftsPending = false
+      agentBaseline = agentWorkspace ? presetFingerprint(ctx.ui.presetEditor.getState().preset!) : null
       await ctx.ui.presetEditor.flush()
       return null
     } catch (error) {
@@ -1431,6 +1447,70 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       catch { clearTimeout(timer); backupRequests.delete(requestId); reject(new Error('Could not reach backup storage.')) }
     })
   }
+  const agentButton = root.querySelector<HTMLButtonElement>('[data-action="agent"]')!
+  const previewHome = previewElement.parentElement!
+  const previewNext = previewElement.nextSibling
+  async function leaveAgent(): Promise<void> {
+    const workspace = agentWorkspace
+    if (!workspace) return
+    const choice = await workspace.confirmLeave()
+    if (!choice || destroyed || agentWorkspace !== workspace) { if (!destroyed) agentButton.focus(); return }
+    agentWorkspace = null
+    workspace.cancel()
+    previewHome.insertBefore(previewElement, previewNext)
+    workspace.destroy()
+    root.classList.remove('agent-mode')
+    agentButton.textContent = 'Agent'
+    agentButton.setAttribute('aria-pressed', 'false')
+    if (choice === 'discard') discardLocalDrafts()
+    agentButton.focus({ preventScroll: true })
+  }
+  agentButton.addEventListener('click', () => {
+    if (applyingDrafts || destroyed) return
+    if (agentWorkspace) { void leaveAgent(); return }
+    if (closeIssueReview || closeBackups || !retainEditorDrafts(['primary', 'secondary'])) return
+    closeMobileRails()
+    const host = ctx.ui.presetEditor.getState().preset
+    if (!host) return
+    const existing = issueReview.apply(pendingRestore?.preset.blocks ?? host.blocks)
+    if (!existing.ok || (pendingRestore && !pendingRestore.matches(host))) {
+      const notice = root.querySelector<HTMLElement>('[data-role="draft-notice"]')!
+      notice.textContent = 'Existing local drafts conflict with the host preset. Resolve or discard them before entering agent mode.'
+      notice.hidden = false; root.classList.add('has-draft-error'); return
+    }
+    agentBaseline = presetFingerprint(host)
+    const workspace = new AgentWorkspace(ctx, {
+      snapshot: currentBackupSnapshot,
+      context: () => ({ values: structuredClone(canonicalValue.promptVariableValues), mocks: variableSandbox.overlay(effectiveValue().blocks, canonicalValue.promptVariableValues), preview: structuredClone(previewResult), changes: [...issueReview.blockIds, ...(pendingRestore ? ['Whole preset draft'] : [])] }),
+      stage: (preset, baseline) => {
+        if (destroyed || applyingDrafts) throw Error('Workshop is unavailable for edits.')
+        const latest = ctx.ui.presetEditor.getState().preset
+        if (!latest || latest.id !== sessionPresetId || (agentBaseline !== null && presetFingerprint(latest) !== agentBaseline)) throw Error('The host preset changed during agent mode. Changes were not staged; leave and reopen agent mode.')
+        if (presetFingerprint(currentBackupSnapshot()) !== baseline) throw Error('Local drafts changed during the run. Generated edits were not staged; run again against the current draft.')
+        if (preset.id !== latest.id) throw Error('Agent result targets another preset.')
+        if (!issueReview.apply(pendingRestore?.preset.blocks ?? latest.blocks).ok) throw Error('Existing prompt drafts conflict with the host; generated changes were not staged.')
+        // Preserve the original host conflict baseline when editing an existing restore.
+        if (pendingRestore && !pendingRestore.matches(latest)) throw Error('An earlier preset draft conflicts with the host. Discard or resolve it first.')
+        pendingRestore = new PresetRestoreDraft(latest, preset)
+        issueReview.clear()
+        primaryDraftValue = null; secondaryDraftValue = null
+        agentDraftsPending = true
+        if (!baseBlocks().some(block => block.id === selectedBlockId)) selectedBlockId = null
+        if (!baseBlocks().some(block => block.id === secondaryBlockId)) secondaryBlockId = null
+        primaryEditorBase = baseBlocks(); secondaryEditorBase = baseBlocks()
+        renderEditorVisibility()
+        refreshLocalDrafts()
+      },
+    })
+    agentWorkspace = workspace
+    root.classList.add('agent-mode')
+    root.append(workspace.element)
+    workspace.element.append(previewElement)
+    agentButton.textContent = 'Leave agent'
+    agentButton.setAttribute('aria-pressed', 'true')
+    workspace.element.querySelector<HTMLSelectElement>('select')?.focus()
+  })
+
   function currentBackupSnapshot(): SpindlePresetEditorDraft {
     if (!retainEditorDrafts(['primary', 'secondary'])) throw new Error('Save or discard the ambiguous prompt draft first.')
     const host = ctx.ui.presetEditor.getState()
@@ -2244,6 +2324,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     setDraftStatus()
     scheduleNativeDecoration()
     schedulePreview()
+    agentWorkspace?.refresh()
     return true
   }
 
@@ -2298,6 +2379,8 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
 
   async function closeWorkshop(force = false): Promise<void> {
     if (destroyed) return
+    if (!force && agentWorkspace) { await leaveAgent(); return }
+    if (agentWorkspace) { agentWorkspace.destroy(); agentWorkspace = null }
     closeIssueReview?.()
     closeBackups?.()
     const dirtyBlocks = [
@@ -2364,6 +2447,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
 
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Escape') {
+      if (root.querySelector('dialog[open]') || activeReviewSurface?.querySelector('dialog[open]')) return
       if (root.classList.contains('mobile-left-open') || root.classList.contains('mobile-right-open')) {
         closeMobileRails()
         return
@@ -2565,7 +2649,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
 }
 
 export function setup(ctx: SpindleFrontendContext): () => void {
-  const removeStyle = ctx.dom.addStyle(WORKSHOP_CSS)
+  const removeStyle = ctx.dom.addStyle(WORKSHOP_CSS + AGENT_CSS)
 
   // Use the canonical host mount point rather than the registered toolbar-item
   // React bridge. The mount service owns a persistent MutationObserver and

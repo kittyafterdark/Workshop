@@ -1,3 +1,4 @@
+import { WorkshopAgentCoordinator } from './agent-backend.js'
 import { WorkshopPreviewCoordinator } from './backend-core.js'
 import { isWorkshopFrontendMessage } from './shared.js'
 import { isWorkshopBackupRequest, type WorkshopBackupResponse } from './shared.js'
@@ -9,6 +10,7 @@ const previews = new WorkshopPreviewCoordinator({
   assemble: (input, userId) => spindle.assemble(input, userId),
   sendToFrontend: (payload, userId) => spindle.sendToFrontend(payload, userId),
 })
+const agents = new WorkshopAgentCoordinator(spindle)
 const backups = new PresetBackupStore(spindle.ephemeral)
 // Cleanup also runs on every backup operation; the host TTL survives extension reloads.
 const prune = () => { void spindle.ephemeral.clearExpired().catch(() => {}) }
@@ -16,6 +18,7 @@ prune()
 setInterval(prune, 60 * 60 * 1000)
 
 spindle.onFrontendMessage((payload, userId) => {
+  if (payload && typeof payload === 'object' && String((payload as { type?: unknown }).type).startsWith('workshop:agent-')) { void agents.handle(payload, userId); return }
   if (isWorkshopBackupRequest(payload)) {
     void (async () => {
       const response: WorkshopBackupResponse = { type: 'workshop:backup-result', requestId: payload.requestId }
