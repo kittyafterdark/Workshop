@@ -906,6 +906,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   }
 
   async function requestSelectedBlock(blockId: string | null): Promise<void> {
+    if (agentWorkspace) { agentWorkspace.selectBlock(blockId); return }
     if (blockId !== null && !baseBlocks().some((block) => block.id === blockId)) return
     if (blockId === selectedBlockId) return
     const discarded = draftSlotsDiscardedBySelection({
@@ -973,6 +974,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   }
 
   function renderPrompts(): void {
+    const activeBlockId = agentWorkspace?.selectedBlockId ?? selectedBlockId
     const previousScrollTop = promptList.scrollTop
     const previousScrollLeft = promptList.scrollLeft
     const value = effectiveValue()
@@ -1015,8 +1017,8 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       const row = document.createElement('button')
       row.type = 'button'
       row.className = `workshop-row${child ? ' child' : ''}`
-      if (block.id === selectedBlockId) row.classList.add('selected')
-      if (block.id === secondaryBlockId) row.classList.add('secondary-selected')
+      if (block.id === activeBlockId) { row.classList.add('selected'); row.setAttribute('aria-current', 'true') }
+      if (!agentWorkspace && block.id === secondaryBlockId) row.classList.add('secondary-selected')
       if (owners.has(block.id)) row.classList.add('variable-owner')
       if (refs.has(block.id)) row.classList.add('variable-reference')
       row.dataset.blockId = block.id
@@ -1028,7 +1030,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       row.addEventListener('click', () => { void requestSelectedBlock(block.id) })
       wrap.append(row)
 
-      if (selectedBlockId && block.id !== selectedBlockId) {
+      if (!agentWorkspace && selectedBlockId && block.id !== selectedBlockId) {
         const split = button(
           'workshop-mini-button',
           block.id === secondaryBlockId ? 'Close second prompt' : `Open ${block.name || 'prompt'} beside current prompt`,
@@ -1057,17 +1059,20 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
           `${collapsed ? 'Expand' : 'Collapse'} ${category.name || 'category'}`,
           `<span class="workshop-category-chevron${collapsed ? ' collapsed' : ''}">${ICONS.chevronDown}</span>`,
         )
+        toggle.setAttribute('aria-expanded', String(!collapsed))
+        toggle.dataset.categoryId = category.id
         toggle.addEventListener('click', () => {
           if (collapsedCategories.has(category.id)) collapsedCategories.delete(category.id)
           else collapsedCategories.add(category.id)
           renderPrompts()
+          Array.from(promptList.querySelectorAll<HTMLButtonElement>('.workshop-category-toggle')).find(button => button.dataset.categoryId === category.id)?.focus({ preventScroll: true })
         })
         wrap.append(toggle)
 
         const row = document.createElement('button')
         row.type = 'button'
         row.className = 'workshop-row category'
-        if (category.id === selectedBlockId) row.classList.add('selected')
+        if (category.id === activeBlockId) { row.classList.add('selected'); row.setAttribute('aria-current', 'true') }
         if (owners.has(category.id)) row.classList.add('variable-owner')
         if (refs.has(category.id)) row.classList.add('variable-reference')
 
@@ -1460,6 +1465,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     previewHome.insertBefore(previewElement, previewNext)
     workspace.destroy()
     root.classList.remove('agent-mode')
+    refreshRailButtons(); renderPrompts()
     agentButton.textContent = 'Agent'
     agentButton.setAttribute('aria-pressed', 'false')
     if (choice === 'discard') discardLocalDrafts()
@@ -1481,6 +1487,9 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     agentBaseline = presetFingerprint(host)
     const workspace = new AgentWorkspace(ctx, {
       snapshot: currentBackupSnapshot,
+      navigation: root.querySelector<HTMLElement>('.workshop-rail.left')!,
+      initialBlockId: selectedBlockId,
+      onSelection: renderPrompts,
       context: () => ({ values: structuredClone(canonicalValue.promptVariableValues), mocks: variableSandbox.overlay(effectiveValue().blocks, canonicalValue.promptVariableValues), preview: structuredClone(previewResult), changes: [...issueReview.blockIds, ...(pendingRestore ? ['Whole preset draft'] : [])] }),
       stage: (preset, baseline) => {
         if (destroyed || applyingDrafts) throw Error('Workshop is unavailable for edits.')
@@ -1508,7 +1517,8 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     workspace.element.append(previewElement)
     agentButton.textContent = 'Leave agent'
     agentButton.setAttribute('aria-pressed', 'true')
-    workspace.element.querySelector<HTMLSelectElement>('select')?.focus()
+    renderPrompts()
+    workspace.element.querySelector<HTMLButtonElement>('[data-agent="prompts"]')?.focus()
   })
 
   function currentBackupSnapshot(): SpindlePresetEditorDraft {
@@ -2448,6 +2458,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Escape') {
       if (root.querySelector('dialog[open]') || activeReviewSurface?.querySelector('dialog[open]')) return
+      if (agentWorkspace?.closeNavigation()) return
       if (root.classList.contains('mobile-left-open') || root.classList.contains('mobile-right-open')) {
         closeMobileRails()
         return
@@ -2508,6 +2519,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
 
   root.querySelector<HTMLButtonElement>('[data-action="close"]')!.addEventListener('click', () => { void closeWorkshop() })
   leftRailButton.addEventListener('click', () => {
+    if (agentWorkspace) { agentWorkspace.toggleNavigation(); return }
     root.classList.toggle('left-collapsed')
     refreshRailButtons()
     scheduleNativeDecoration()

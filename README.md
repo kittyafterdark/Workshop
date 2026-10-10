@@ -6,6 +6,12 @@ Workshop is a fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.7.1 agent workspace polish
+
+- Floating assistant composer with one right-hand SVG action: Send becomes Stop during generation. Enter sends, Shift+Enter adds a line, and the input grows with its content.
+- Agent mode reuses Workshop's searchable prompt/category sidebar, with collapse/reopen controls and a compact overlay on smaller screens. Category expansion survives leaving and reopening agent mode.
+- Separates prompt navigation, local editing, assistant settings and conversation. Draft staging and final Apply confirmations are unchanged.
+
 ## 0.7.0 agent workspace
 
 - Enter **Agent** from the Workshop header. The local prompt editor works without MCP or a model connection; select a Lumi connection to send instructions to the assistant. The existing assembly preview follows the staged blocks and preview mocks.

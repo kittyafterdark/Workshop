@@ -21,6 +21,7 @@ window.spindle={
 await import('/backend.js');
 const listeners=new Set();window.writes=0;window.flushes=0;window.mounts=0;window.destroys=0;
 window.snapshot=()=>structuredClone(preset);
+window.addCategories=()=>{preset.blocks=[{...block('category',''),name:'Fixture category',marker:'category'},...preset.blocks.map(b=>({...b,group:'category'}))]};
 window.external=(id)=>{preset.blocks=preset.blocks.map(b=>b.id===id?{...b,content:'external change'}:b);for(const fn of listeners)fn(state());};
 const state=()=>({open:true,presetId:'fixture',preset:structuredClone(preset)});
 window.changeShape=()=>{preset.blocks=preset.blocks.filter(block=>block.id!=='two');preset.blocks.push(block('extra','new outside block'));preset.parameters={temperature:2};for(const fn of listeners)fn(state());};
