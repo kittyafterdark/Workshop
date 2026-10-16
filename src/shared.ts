@@ -4,10 +4,12 @@ import type {
   PromptVariableValuesDTO,
 } from 'lumiverse-spindle-types'
 import { isPresetSnapshot, type BackupSummary, type PresetBackup } from './backup-core.js'
+import { isBackupSettings, type BackupSettings } from './backup-settings.js'
 import type { SpindlePresetEditorDraft } from 'lumiverse-spindle-types'
 
 export type WorkshopBackupCommand =
   | { type: 'workshop:backup-create'; preset: SpindlePresetEditorDraft; kind: PresetBackup['kind'] }
+  | { type: 'workshop:backup-settings'; presetId: string; settings?: BackupSettings }
   | { type: 'workshop:backup-list'; presetId: string }
   | { type: 'workshop:backup-read'; presetId: string; path: string }
 export type WorkshopBackupRequest = WorkshopBackupCommand & { requestId: string }
@@ -17,12 +19,14 @@ export interface WorkshopBackupResponse {
   error?: string
   backup?: PresetBackup
   backups?: BackupSummary[]
+  settings?: BackupSettings
 }
 export function isWorkshopBackupRequest(value: unknown): value is WorkshopBackupRequest {
   if (!value || typeof value !== 'object') return false
   const item = value as Record<string, unknown>
   if (typeof item.requestId !== 'string' || item.requestId.length > 200) return false
-  if (item.type === 'workshop:backup-create') return isPresetSnapshot(item.preset) && (item.kind === 'manual' || item.kind === 'before-apply')
+  if (item.type === 'workshop:backup-create') return isPresetSnapshot(item.preset) && (item.kind === 'manual' || item.kind === 'before-apply' || item.kind === 'automatic')
+  if (item.type === 'workshop:backup-settings') return typeof item.presetId === 'string' && !!item.presetId && (item.settings === undefined || isBackupSettings(item.settings))
   return typeof item.presetId === 'string' && (item.type === 'workshop:backup-list'
     || (item.type === 'workshop:backup-read' && typeof item.path === 'string'))
 }

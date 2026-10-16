@@ -6,6 +6,15 @@ Workshop is a fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.8.0 automatic backups and assistant polish
+
+- **Preset backups → Settings** configures each user's preset independently: opt-in timed backups, a 1–1440 minute interval, and how many files to keep (0 means unlimited). Settings persist in public per-user extension storage across restarts. Timers run only while Workshop is open, include unsynced manual/agent drafts, skip unchanged snapshots, and stop on close/unload. They do not Apply or save the live preset.
+- The count limit includes manual, timed and pre-Apply snapshots, including earlier name folders for the same preset. Saving a lower limit prunes the oldest existing files immediately. New snapshots are written before count pruning; seven-day transient-storage expiry still applies. A failed automatic backup marks the launcher and appears in the backup panel; storage failure retains the current local work.
+- Model suggestions now load the selected connection's catalogue through Lumi's authenticated `/api/v1/connections/:id/models` endpoint, with a **Refresh models** control. Provider credentials stay on Lumi. Default/manual model entry remains available if the catalogue cannot load or the deployment uses a different API base.
+- **Retry last request** resends a failed instruction against the current local draft and selected connection/model without duplicating the user message or erasing the next typed message. Stopping retains local drafts and does not offer an automatic retry.
+- Collapsible **Thinking** displays reasoning returned by the provider after each generation call. It is not streamed token by token: the current host streaming contract omits native reasoning metadata used by some tool continuations.
+- Assistant replies render sanitized Markdown, including headings, lists, tables and code. Tool activity has a padded, collapsible card with a bounded scroll area.
+
 ## 0.7.2 agent model selection
 
 - Fixes raw generation requests omitting the model: each run reads the current selected Lumi connection and explicitly sends its model through every tool round.
@@ -31,7 +40,7 @@ Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types
 ## 0.6.0 preset backups
 
 - Open Preset backups from the archive icon in the Workshop header. Create backup captures your current local work; every Apply first saves the previous host preset. Storage failure prevents Apply and retains local edits.
-- Uses the public `spindle.ephemeral` API with `ephemeral_storage` permission. Paths are `storage/<safe-preset-name>/backups/YYYY-MM-DD HH-mm-ss.SSS UTC--<unique-id>.json`. Each snapshot has a seven-day TTL. Cleanup runs at extension startup, hourly while loaded, and on backup operations; overdue files are removed when the extension resumes. No browser storage or backup-count cap.
+- Uses the public `spindle.ephemeral` API with `ephemeral_storage` permission. Paths are `storage/<safe-preset-name>/backups/YYYY-MM-DD HH-mm-ss.SSS UTC--<unique-id>.json`. Each snapshot has a seven-day TTL. Cleanup runs at extension startup, hourly while loaded, and on backup operations; overdue files are removed when the extension resumes. No browser storage. A configurable per-preset count cap was added in 0.8.0.
 - Backups include the public preset draft: name, blocks (including variable definitions), parameters, prompts, and metadata. Live variable selections stay under Lumi’s control, and preview mocks are excluded. Backups remain discoverable after a preset rename and are filtered by preset identity and requesting user.
 - Restore locally stages the entire public preset and saves a recovery snapshot of your existing local work first. Inspect or edit its prompts, then Apply restore. Discard drafts cancels it. A host change after staging refuses the entire restore.
 
@@ -177,6 +186,8 @@ bun run verify
 node scripts/check-variable-sandbox.mjs
 # Real frontend/backend bundles, mocked native editor and ephemeral storage:
 node scripts/check-issue-review.mjs
+node scripts/check-agent-workspace.mjs
+node scripts/check-backup-settings.mjs
 ```
 
 Build output is written to `dist/frontend.js` and `dist/backend.js`.

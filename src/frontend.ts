@@ -12,6 +12,7 @@ import type {
 } from 'lumiverse-spindle-types'
 import { isWorkshopBackendMessage, isWorkshopBackupResponse, type WorkshopBackupCommand, type WorkshopBackupResponse } from './shared.js'
 import { PresetRestoreDraft, presetFingerprint } from './backup-core.js'
+import { AutomaticBackups, DEFAULT_BACKUP_SETTINGS, isBackupSettings, type BackupSettings } from './backup-settings.js'
 import {
   WorkshopVariableSandbox,
   WorkshopIssueReview,
@@ -407,6 +408,20 @@ const WORKSHOP_CSS = String.raw`
 }
 .workshop-backup-list { flex: 1; min-height: 0; overflow: auto; padding: 0 18px 18px; }
 .workshop-backup-row { display: flex; align-items: center; gap: 16px; padding: 16px; margin-bottom: 10px; border: 1px solid var(--lumiverse-border, #333); border-radius: 10px; }
+.workshop-icon-button[data-backup-error] {position:relative;color:var(--lumiverse-warning,#e8b04c)}
+.workshop-icon-button[data-backup-error]:after {content:"!";position:absolute;right:1px;top:0;font-size:11px;font-weight:750}
+.workshop-backup-settings {padding:16px;margin:0 0 16px;border:1px solid var(--lumiverse-border);border-radius:12px;background:var(--lumiverse-bg);display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.workshop-backup-settings[hidden] {display:none}
+.workshop-backup-settings h3,.workshop-backup-settings p,.workshop-backup-settings .workshop-review-controls,.workshop-backup-switch {grid-column:1 / -1;margin:0}
+.workshop-backup-settings label {display:flex;flex-direction:column;gap:7px;font-size:12px}
+.workshop-backup-settings p {font-size:11px;line-height:1.5;color:var(--lumiverse-text-muted)}
+.workshop-backup-settings input[type=number] {width:100%;min-width:0;padding:10px;border:1px solid var(--lumiverse-border);border-radius:8px;background:var(--lumiverse-bg);color:var(--lumiverse-text)}
+.workshop-backup-settings .workshop-backup-switch {flex-direction:row;align-items:center;gap:10px}
+.workshop-backup-switch input {appearance:none;flex:0 0 auto;width:36px;height:22px;border:1px solid var(--lumiverse-border);border-radius:20px;background:var(--lumiverse-bg);position:relative;cursor:pointer}
+.workshop-backup-switch input:before {content:'';position:absolute;width:16px;height:16px;left:2px;top:2px;border-radius:50%;background:var(--lumiverse-text-muted)}
+.workshop-backup-switch input:checked {background:var(--lumiverse-primary,#aa88ef)}
+.workshop-backup-switch input:checked:before {left:16px;background:var(--lumiverse-primary-text,#111)}
+.workshop-backup-settings input:focus-visible {outline:2px solid var(--lumiverse-primary,#aa88ef);outline-offset:3px}
 .workshop-backup-row > div { flex: 1; min-width: 0; }
 .workshop-backup-row h3 { margin: 0; font-size: 14px; }
 .workshop-backup-row p { font-size: 12px; color: var(--lumiverse-text-muted, #aaa); line-height: 1.5; }
@@ -634,6 +649,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
         <button class="workshop-icon-button" type="button" data-action="close" aria-label="Close Workshop">${ICONS.close}</button>
       </div>
     </header>
+    <span class="workshop-agent-sr-only" data-role="automatic-backup-notice" role="status"></span>
     <div class="workshop-draft-error" data-role="draft-notice" role="alert" hidden></div>
     <div class="workshop-body">
       <aside class="workshop-rail left">
@@ -1452,6 +1468,32 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       catch { clearTimeout(timer); backupRequests.delete(requestId); reject(new Error('Could not reach backup storage.')) }
     })
   }
+  let backupSettings: BackupSettings = { ...DEFAULT_BACKUP_SETTINGS }
+  let backupSettingsRevision = 0
+  let automaticBackupError = ''
+  let refreshBackupPanel: (() => void) | null = null
+  const automaticBackups = new AutomaticBackups(async () => {
+    if (destroyed || applyingDrafts) return
+    await requestBackup({ type: 'workshop:backup-create', preset: currentBackupSnapshot(), kind: 'automatic' })
+    setAutomaticBackupError(''); refreshBackupPanel?.()
+  }, error => {
+    setAutomaticBackupError(error instanceof Error ? error.message : 'Automatic backup failed.')
+    statusCopy.textContent = 'Automatic backup failed. Open Preset backups for details.'
+    refreshBackupPanel?.()
+  })
+  cleanups.push(() => automaticBackups.destroy())
+  function setAutomaticBackupError(error: string): void {
+    automaticBackupError = error
+    if (!error) setDraftStatus()
+    const launcher = root.querySelector<HTMLButtonElement>('[data-action="backups"]')!
+    launcher.toggleAttribute('data-backup-error', !!error)
+    launcher.title = error ? 'Automatic backup failed. Open Preset backups for details.' : 'Preset backups'
+    root.querySelector('[data-role="automatic-backup-notice"]')!.textContent = error ? 'Automatic backup failed. Open Preset backups for details.' : ''
+  }
+  function configureBackups(settings: BackupSettings): void {
+    const changed = backupSettings.automatic !== settings.automatic || backupSettings.intervalMinutes !== settings.intervalMinutes
+    backupSettings = { ...settings }; if (changed) automaticBackups.configure(settings)
+  }
   const agentButton = root.querySelector<HTMLButtonElement>('[data-action="agent"]')!
   const previewHome = previewElement.parentElement!
   const previewNext = previewElement.nextSibling
@@ -1533,16 +1575,34 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     const surface = panel.root
     const restoreChrome = installFullscreenModalChrome(surface)
     surface.className = 'workshop-review workshop-backups'
-    surface.innerHTML = `<header class="workshop-review-header"><div class="workshop-review-brand">${ICONS.backups}<div><h2>Preset backups</h2><span class="workshop-review-caption"></span></div></div><button type="button" class="workshop-review-button" data-backup="close">${ICONS.close}<span>Close</span></button></header><section class="workshop-review-issue" aria-label="Backup retention"><h3>One week of recovery</h3><p>Automatic snapshots before Apply, plus manual snapshots of your local work. Restore stays local until Apply.</p><p>Includes prompt blocks, variable definitions and preset settings. Lumi keeps live variable selections; preview mocks are excluded.</p><p>Stored in Workshop’s transient storage under storage/&lt;preset-name&gt;/backups/. Filenames use UTC date and time. Backups expire after seven days, including across restarts.</p></section><div class="workshop-backup-list" data-backup="list" aria-label="Available backups"></div><footer class="workshop-review-footer"><div class="workshop-review-controls"><button type="button" class="workshop-review-button primary" data-backup="create">${ICONS.backups}<span>Create backup</span></button><button type="button" class="workshop-review-button" data-backup="refresh">${ICONS.refresh}<span>Refresh</span></button></div><span class="workshop-review-notice" data-backup="notice" role="status"></span></footer>`
+    const settingsId = `backup-settings-${crypto.randomUUID()}`
+    surface.innerHTML = `<header class="workshop-review-header"><div class="workshop-review-brand">${ICONS.backups}<div><h2>Preset backups</h2><span class="workshop-review-caption"></span></div></div><button type="button" class="workshop-review-button" data-backup="close">${ICONS.close}<span>Close</span></button></header><section class="workshop-review-issue" aria-label="Backup retention"><h3>One week of recovery</h3><p>Snapshots before Apply, manual snapshots, and optional timed backups of local work. Restore stays local until Apply.</p><p>Includes prompt blocks, variable definitions and preset settings. Lumi keeps live variable selections; preview mocks are excluded.</p><p>Stored in Workshop’s transient storage under storage/&lt;preset-name&gt;/backups/. Filenames use UTC date and time. Backups expire after seven days, including across restarts. A count limit can remove older backups sooner.</p><p data-backup="timing"></p></section><div class="workshop-backup-list"><form class="workshop-backup-settings" id="${settingsId}" aria-label="Backup settings" hidden><h3>Backup settings</h3><label class="workshop-backup-switch"><input type="checkbox" role="switch" data-backup="automatic">Automatic timed backups</label><label>Interval in minutes<input type="number" data-backup="interval" min="1" max="1440" step="1" required></label><label>Maximum backups to keep<input type="number" data-backup="keep" min="0" max="10000" step="1" required></label><p>Per preset. Timed backups run while Workshop is open, include unsynced edits, and skip unchanged snapshots. Closing Workshop stops the timer. Use 0 for no count limit. Saving a smaller limit removes the oldest backups now, including manual and pre-Apply snapshots, across this preset’s previous names. Seven-day expiry still applies.</p><div class="workshop-review-controls"><button type="submit" class="workshop-review-button primary" data-backup="save-settings">Save settings</button><button type="button" class="workshop-review-button" data-backup="cancel-settings">Cancel settings</button></div></form><div data-backup="list" aria-label="Available backups"></div></div><footer class="workshop-review-footer"><div class="workshop-review-controls"><button type="button" class="workshop-review-button primary" data-backup="create">${ICONS.backups}<span>Create backup</span></button><button type="button" class="workshop-review-button" data-backup="refresh">${ICONS.refresh}<span>Refresh</span></button><button type="button" class="workshop-review-button" data-backup="settings" aria-controls="${settingsId}" aria-expanded="false">Settings</button></div><span class="workshop-review-notice" data-backup="notice" role="status"></span></footer>`
     surface.querySelector('.workshop-review-caption')!.textContent = latestPresetName
     const list = surface.querySelector<HTMLElement>('[data-backup="list"]')!
     const notice = surface.querySelector<HTMLElement>('[data-backup="notice"]')!
+    const settingsForm = surface.querySelector<HTMLFormElement>('.workshop-backup-settings')!
+    const settingsButton = surface.querySelector<HTMLButtonElement>('[data-backup="settings"]')!
+    const field = (name: string) => settingsForm.querySelector<HTMLInputElement>(`[data-backup="${name}"]`)!
+    const paintSettings = () => {
+      field('automatic').checked = backupSettings.automatic
+      field('interval').value = String(backupSettings.intervalMinutes)
+      field('keep').value = String(backupSettings.keep)
+    }
+    const timing = () => { surface.querySelector('[data-backup="timing"]')!.textContent = `${backupSettings.automatic ? `Timed backups every ${backupSettings.intervalMinutes} minutes while Workshop is open.` : 'Timed backups are off.'} ${backupSettings.keep ? `Keep newest ${backupSettings.keep} backups.` : 'No count limit.'}${automaticBackupError ? ` Last automatic backup failed: ${automaticBackupError}` : ''}` }
+    let settingsFocusPending = false
+    const showSettings = (show: boolean) => {
+      if (show) paintSettings()
+      settingsForm.hidden = !show; settingsButton.setAttribute('aria-expanded', String(show))
+      if (show) field('automatic').focus(); else if (busy) settingsFocusPending = true; else settingsButton.focus()
+    }
     let closed = false
     let busy = false
     const setBusy = (next: boolean) => {
       busy = next
       for (const button of surface.querySelectorAll<HTMLButtonElement>('button')) if (button.dataset.backup !== 'close') button.disabled = next
+      for (const input of settingsForm.querySelectorAll('input')) input.disabled = next
       notice.textContent = next ? 'Working with backup storage…' : ''
+      if (!next && settingsFocusPending) { settingsFocusPending = false; settingsButton.focus() }
     }
     const run = async (action: () => Promise<void>) => {
       if (closed || busy) return
@@ -1553,6 +1613,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     }
     const load = async () => {
       const response = await requestBackup({ type: 'workshop:backup-list', presetId: sessionPresetId })
+      timing()
       if (closed) return
       list.replaceChildren()
       if (!response.backups?.length) { const empty = document.createElement('p'); empty.textContent = 'No backups yet. Create one now, or Apply a draft batch to save its previous state automatically.'; list.append(empty) }
@@ -1563,7 +1624,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
         const title = document.createElement('h3')
         title.textContent = new Date(backup.createdAt).toLocaleString()
         const copy = document.createElement('p')
-        copy.textContent = `${backup.kind === 'manual' ? 'Manual · local work' : 'Before Apply'} · ${backup.blockCount} prompts · expires ${new Date(backup.expiresAt).toLocaleString()}`
+        copy.textContent = `${backup.kind === 'manual' ? 'Manual · local work' : backup.kind === 'automatic' ? 'Timed · local work' : 'Before Apply'} · ${backup.blockCount} prompts · expires ${new Date(backup.expiresAt).toLocaleString()}`
         const path = document.createElement('code')
         path.textContent = backup.path
         info.append(title, copy, path)
@@ -1600,7 +1661,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     }
     const finish = () => {
       if (closed) return
-      closed = true; closeBackups = null
+      closed = true; closeBackups = null; refreshBackupPanel = null
       restoreChrome(); unsubscribe(); panel.dismiss()
       if (!destroyed) root.querySelector<HTMLButtonElement>('[data-action="backups"]')!.focus()
     }
@@ -1611,8 +1672,30 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     surface.querySelector<HTMLButtonElement>('[data-backup="create"]')!.addEventListener('click', () => { void run(async () => {
       await requestBackup({ type: 'workshop:backup-create', preset: currentBackupSnapshot(), kind: 'manual' }); await load(); refreshLocalDrafts()
     }) })
+    settingsButton.addEventListener('click', () => showSettings(settingsForm.hidden))
+    surface.querySelector<HTMLButtonElement>('[data-backup="cancel-settings"]')!.addEventListener('click', () => showSettings(false))
+    settingsForm.addEventListener('submit', event => {
+      event.preventDefault()
+      const settings: BackupSettings = { automatic: field('automatic').checked, intervalMinutes: Number(field('interval').value), keep: Number(field('keep').value) }
+      if (!isBackupSettings(settings)) { notice.textContent = 'Use an interval of 1–1440 minutes and a count of 0–10000.'; return }
+      void run(async () => {
+        ++backupSettingsRevision
+        const response = await requestBackup({ type: 'workshop:backup-settings', presetId: sessionPresetId, settings })
+        if (destroyed) return
+        if (!response.settings) throw Error('Backup settings were not saved.')
+        configureBackups(response.settings); setAutomaticBackupError('')
+        if (closed) return
+        await load(); showSettings(false)
+      })
+    })
+    refreshBackupPanel = () => { void run(load) }
     surface.querySelector<HTMLButtonElement>('[data-backup="close"]')!.focus()
-    void run(load)
+    void run(async () => {
+      const revision = backupSettingsRevision
+      const response = await requestBackup({ type: 'workshop:backup-settings', presetId: sessionPresetId })
+      if (!closed && !destroyed && revision === backupSettingsRevision && response.settings) configureBackups(response.settings)
+      await load()
+    })
   }
   root.querySelector<HTMLButtonElement>('[data-action="backups"]')!.addEventListener('click', openBackups)
 
@@ -2643,6 +2726,10 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   previewResizer.addEventListener('pointerdown', onPreviewPointerDown)
   cleanups.push(() => previewResizer.removeEventListener('pointerdown', onPreviewPointerDown))
 
+  const initialBackupSettingsRevision = backupSettingsRevision
+  void requestBackup({ type: 'workshop:backup-settings', presetId: sessionPresetId }).then(response => {
+    if (!destroyed && initialBackupSettingsRevision === backupSettingsRevision && response.settings) configureBackups(response.settings)
+  }).catch(() => { if (!destroyed) setAutomaticBackupError('Could not load automatic backup settings. Open Preset backups and retry.') })
   presetName.textContent = latestPresetName
   renderEditorVisibility()
   renderPrompts()

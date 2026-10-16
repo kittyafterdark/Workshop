@@ -1,3 +1,4 @@
+import { renderAgentMarkdown } from './agent-markdown.js'
 import type { SpindleFrontendContext, SpindlePresetEditorDraft } from 'lumiverse-spindle-types'
 import type { AgentContext } from './agent-core.js'
 import type { AgentResponse } from './agent-backend.js'
@@ -61,13 +62,44 @@ export const AGENT_CSS = `
 .workshop-agent .workshop-agent-content {flex:1;min-height:180px}
 .workshop-agent-settings>div {display:flex;flex-direction:column;gap:7px;min-width:0}
 .workshop-agent-settings {display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:18px;border-bottom:1px solid var(--lumiverse-border)}
+.workshop-agent-model-control {display:flex;gap:7px;min-width:0}
+.workshop-agent-model-control input {flex:1;min-width:0}
+.workshop-agent-model-control button {flex:0 0 38px;display:grid;place-items:center}
+.workshop-agent-model-control svg {width:16px;height:16px}
+.workshop-agent-log>* {flex:0 0 auto}
+.workshop-agent-model-status {font-size:11px;line-height:1.4;color:var(--lumiverse-text-muted)}
 .workshop-agent-settings>p {grid-column:1 / -1;font-size:11px}
 .workshop-agent-log {flex:1;min-height:60px;overflow:auto;display:flex;flex-direction:column;gap:14px;padding:18px;scrollbar-gutter:stable}
 .workshop-agent-message {white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.6;padding:14px;border:1px solid var(--lumiverse-border);border-radius:12px;background:var(--lumiverse-bg)}
-.workshop-agent-message strong {display:block;margin-bottom:7px;font-size:11px;color:var(--lumiverse-text-muted)}
+.workshop-agent-message>strong {display:block;margin-bottom:7px;font-size:11px;color:var(--lumiverse-text-muted)}
+.workshop-agent-message-body {white-space:normal}
+.workshop-agent-message-body p {font-size:inherit;color:inherit;margin:8px 0;line-height:inherit}
+.workshop-agent-message-body h1,.workshop-agent-message-body h2,.workshop-agent-message-body h3 {margin:16px 0 8px;line-height:1.4;font-size:15px}
+.workshop-agent-message-body ul,.workshop-agent-message-body ol {padding-left:22px;margin:8px 0}
+.workshop-agent-message-body li {margin:5px 0}
+.workshop-agent-message-body code {font-family:var(--lumiverse-font-mono,monospace);background:var(--lumiverse-fill-subtle,rgba(128,128,128,.12));border-radius:4px;padding:2px 4px;font-size:.92em}
+.workshop-agent-message-body pre {white-space:pre;overflow:auto;overflow-wrap:normal;max-height:350px;padding:12px;border:1px solid var(--lumiverse-border);border-radius:8px;font-size:12px}
+.workshop-agent-message-body pre code {padding:0;background:none}
+.workshop-agent-message-body blockquote {margin:12px 0;padding-left:12px;border-left:3px solid var(--lumiverse-border)}
+.workshop-agent-message-body table {display:block;max-width:100%;overflow:auto;border-collapse:collapse;margin:12px 0}
+.workshop-agent-message-body th,.workshop-agent-message-body td {border:1px solid var(--lumiverse-border);padding:7px 10px;text-align:left}
+.workshop-agent-message-body a {color:var(--lumiverse-primary,#a3a0e5)}
+.workshop-agent-message-body a:focus-visible {outline:2px solid currentColor;outline-offset:2px}
+.workshop-agent-thinking {padding:12px 14px;border:1px solid var(--lumiverse-border);border-radius:10px;color:var(--lumiverse-text-muted)}
+.workshop-agent-thinking[hidden] {display:none}
 .workshop-agent details {font-size:12px}.workshop-agent pre {white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;font-size:11px}
 .workshop-agent-chat-footer {flex:0 0 auto;padding:0 18px 18px;display:flex;flex-direction:column;gap:10px}
-.workshop-agent-chat-footer details {padding:0 3px}.workshop-agent-status {font-size:11px;line-height:1.5;color:var(--lumiverse-text-muted);padding:0 3px}
+.workshop-agent-chat-footer details {padding:0 3px}
+.workshop-agent-chat-footer .workshop-agent-tools {padding:0;border:1px solid var(--lumiverse-border);border-radius:12px;background:var(--lumiverse-bg);overflow:hidden}
+.workshop-agent-tools>summary {padding:12px 14px;cursor:pointer;font-weight:600;line-height:1.5;list-style-position:inside}
+.workshop-agent-tools[open]>summary {border-bottom:1px solid var(--lumiverse-border)}
+.workshop-agent-tools-body {padding:14px;max-height:140px;overflow:auto;display:flex;flex-direction:column;gap:10px;overscroll-behavior:contain}
+.workshop-agent-compatibility {border-top:1px solid var(--lumiverse-border)}
+.workshop-agent-compatibility summary {padding:8px 0;cursor:pointer;color:var(--lumiverse-text-muted)}
+.workshop-agent-compatibility label {margin:5px 0 7px}
+.workshop-agent-tools-body label {font-size:11px;color:var(--lumiverse-text-muted)}
+.workshop-agent-tools-body pre {margin:2px 0 0;padding:10px;min-height:38px;max-height:120px;line-height:1.7;border:1px solid var(--lumiverse-border);border-radius:8px;background:var(--lumiverse-fill-subtle,rgba(128,128,128,.07))}
+.workshop-agent-tools-body pre:empty:before {content:'No tool calls yet.';color:var(--lumiverse-text-muted)}.workshop-agent-status {font-size:11px;line-height:1.5;color:var(--lumiverse-text-muted);padding:0 3px}
 .workshop-agent-composer {display:flex;gap:10px;align-items:flex-end;padding:12px;border:1px solid var(--lumiverse-border);border-radius:18px;background:var(--lumiverse-bg);box-shadow:0 6px 20px rgba(0,0,0,.12)}
 .workshop-agent-composer:focus-within {border-color:var(--lumiverse-primary,var(--lumiverse-text-muted))}
 .workshop-agent-composer textarea {flex:1;min-width:0;min-height:48px;max-height:180px;resize:none;border:0!important;border-radius:0;background:transparent;padding:4px;outline:none;font-size:13px;box-shadow:none}
@@ -95,6 +127,7 @@ export const AGENT_CSS = `
 `
 
 const AGENT_ICONS = {
+  refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5 M4 17v-5h5 M6 6a8 8 0 0 1 13 3 M18 18A8 8 0 0 1 5 15"/></svg>',
   send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>',
   stop: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
   sidebar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>',
@@ -103,12 +136,15 @@ const AGENT_ICONS = {
 export class AgentWorkspace {
   readonly element = document.createElement('section')
   busy = false
-  private request: { id: string; fingerprint: string; history: Array<{ role: 'user' | 'assistant'; content: string }> } | null = null
+  private failedInstruction: string | null = null
+  private thinking: HTMLPreElement | null = null
+  private request: { id: string; fingerprint: string; instruction: string; history: Array<{ role: 'user' | 'assistant'; content: string }> } | null = null
   private history: Array<{ role: 'user' | 'assistant'; content: string }> = []
   private unsubscribe: () => void
   private timer: ReturnType<typeof setTimeout> | null = null
   private configId = crypto.randomUUID()
   private disposed = false
+  private modelFetch: AbortController | null = null
   private connections: NonNullable<AgentResponse['connections']> = []
   private selectedId: string | null = null
   private navigationOpen = false
@@ -126,7 +162,7 @@ export class AgentWorkspace {
     this.element.className = 'workshop-agent'
     this.element.setAttribute('aria-label', 'Agent workspace')
     const fieldId = crypto.randomUUID()
-    this.element.innerHTML = `<div class="workshop-agent-columns"><div class="workshop-agent-prompt"><section class="workshop-agent-editor" aria-label="Draft prompt editor"><div class="workshop-agent-editor-heading"><button class="workshop-text-button workshop-agent-nav-toggle" type="button" data-agent="prompts" aria-controls="${fieldId}-prompts" aria-expanded="false" aria-label="Open agent prompts">${AGENT_ICONS.sidebar}</button><h2>Prompt draft</h2></div><p>All edits stay local until Apply.</p><p class="workshop-agent-block-name" data-agent="block-name"></p><label class="workshop-agent-content">Draft content<textarea data-agent="content" spellcheck="false"></textarea></label><details><summary>Inspect mounted context</summary><p>Includes current values, preview mocks, diagnostics, settings and regex metadata. Only this mounted preset is available to the agent.</p><pre data-agent="context"></pre></details></section></div><section class="workshop-agent-chat" aria-label="Preset assistant"><div class="workshop-agent-settings"><div><label for="${fieldId}-connection">Lumi connection</label><select id="${fieldId}-connection" data-agent="connection"><option value="">Loading connections…</option></select></div><div><label for="${fieldId}-model">Model</label><input id="${fieldId}-model" data-agent="model" list="${fieldId}-models" placeholder="Connection default" maxlength="500" autocomplete="off"><datalist id="${fieldId}-models" data-agent="models"></datalist></div><p>Use the connection default, or enter a model ID. Edits stay local until Apply.</p></div><div class="workshop-agent-log" data-agent="log" aria-label="Conversation"></div><div class="workshop-agent-chat-footer"><details><summary>Tool activity</summary><label for="${fieldId}-server">PresetTools compatibility</label><select id="${fieldId}-server" data-agent="server"><option value="">Built-in tools</option></select><pre data-agent="activity"></pre></details><div class="workshop-agent-status" data-agent="status" role="status"></div><form class="workshop-agent-composer"><label class="workshop-agent-sr-only" for="${fieldId}-instruction">Ask the preset assistant</label><textarea id="${fieldId}-instruction" data-agent="instruction" rows="2" placeholder="Review diagnostics, or describe an edit…" required maxlength="30000"></textarea><button class="workshop-agent-send" type="submit" data-agent="send" aria-label="Send" title="Send" disabled>${AGENT_ICONS.send}</button></form></div></section></div>`
+    this.element.innerHTML = `<div class="workshop-agent-columns"><div class="workshop-agent-prompt"><section class="workshop-agent-editor" aria-label="Draft prompt editor"><div class="workshop-agent-editor-heading"><button class="workshop-text-button workshop-agent-nav-toggle" type="button" data-agent="prompts" aria-controls="${fieldId}-prompts" aria-expanded="false" aria-label="Open agent prompts">${AGENT_ICONS.sidebar}</button><h2>Prompt draft</h2></div><p>All edits stay local until Apply.</p><p class="workshop-agent-block-name" data-agent="block-name"></p><label class="workshop-agent-content">Draft content<textarea data-agent="content" spellcheck="false"></textarea></label><details><summary>Inspect mounted context</summary><p>Includes current values, preview mocks, diagnostics, settings and regex metadata. Only this mounted preset is available to the agent.</p><pre data-agent="context"></pre></details></section></div><section class="workshop-agent-chat" aria-label="Preset assistant"><div class="workshop-agent-settings"><div><label for="${fieldId}-connection">Lumi connection</label><select id="${fieldId}-connection" data-agent="connection"><option value="">Loading connections…</option></select></div><div><label for="${fieldId}-model">Model</label><div class="workshop-agent-model-control"><input id="${fieldId}-model" data-agent="model" list="${fieldId}-models" placeholder="Connection default" maxlength="500" autocomplete="off"><datalist id="${fieldId}-models" data-agent="models"></datalist><button type="button" class="workshop-text-button" data-agent="refresh-models" aria-label="Refresh models" title="Refresh models">${AGENT_ICONS.refresh}</button></div><span class="workshop-agent-model-status" data-agent="model-status" role="status"></span></div><p>Use the connection default, or enter a model ID. Edits stay local until Apply.</p></div><div class="workshop-agent-log" data-agent="log" aria-label="Conversation"></div><div class="workshop-agent-chat-footer"><details class="workshop-agent-tools"><summary>Tool activity</summary><div class="workshop-agent-tools-body"><pre data-agent="activity"></pre><details class="workshop-agent-compatibility"><summary>PresetTools compatibility</summary><label for="${fieldId}-server">PresetTools compatibility</label><select id="${fieldId}-server" data-agent="server"><option value="">Built-in tools</option></select></details></div></details><div class="workshop-agent-status" data-agent="status" role="status"></div><button type="button" class="workshop-text-button" data-agent="retry" hidden>Retry last request</button><form class="workshop-agent-composer"><label class="workshop-agent-sr-only" for="${fieldId}-instruction">Ask the preset assistant</label><textarea id="${fieldId}-instruction" data-agent="instruction" rows="2" placeholder="Review diagnostics, or describe an edit…" required maxlength="30000"></textarea><button class="workshop-agent-send" type="submit" data-agent="send" aria-label="Send" title="Send" disabled>${AGENT_ICONS.send}</button></form></div></section></div>`
     const navigation = options.navigation
     this.navigationHome = { parent: navigation.parentNode!, next: navigation.nextSibling, id: navigation.id, label: navigation.getAttribute('aria-label'), hidden: navigation.hidden, buttonLabel: navigation.querySelector('[data-action="left"]')!.getAttribute('aria-label') }
     navigation.id = `${fieldId}-prompts`
@@ -139,7 +175,9 @@ export class AgentWorkspace {
     this.button('prompts').addEventListener('click', () => this.toggleNavigation())
     this.button('send').addEventListener('click', e => { if (this.busy) { e.preventDefault(); this.cancel() } })
     this.unsubscribe = ctx.onBackendMessage(payload => this.receive(payload))
-    this.select('connection').addEventListener('change', () => { this.resetModel(); this.updateControls() })
+    this.select('connection').addEventListener('change', () => { this.resetModel(); void this.loadModels(); this.updateControls() })
+    this.button('refresh-models').addEventListener('click', () => { void this.loadModels() })
+    this.button('retry').addEventListener('click', () => { if (this.failedInstruction) this.run(this.failedInstruction) })
     this.area('content').addEventListener('input', () => {
       try {
         const preset = options.snapshot(), baseline = presetFingerprint(preset)
@@ -165,6 +203,36 @@ export class AgentWorkspace {
     this.modelInput().placeholder = model ? `Connection default · ${model}` : 'Enter a model ID'
     this.element.querySelector('[data-agent="models"]')!.replaceChildren(...(model ? [new Option(model, model)] : []))
   }
+  private async loadModels(): Promise<void> {
+    this.modelFetch?.abort()
+    const connectionId = this.select('connection').value
+    this.modelFetch = null
+    const status = this.element.querySelector<HTMLElement>('[data-agent="model-status"]')!
+    if (!connectionId) { status.textContent = ''; return }
+    const controller = new AbortController()
+    this.modelFetch = controller
+    const timeout = setTimeout(() => controller.abort(), 30000)
+    status.textContent = 'Loading models…'; this.updateControls()
+    try {
+      // Public authenticated Lumi endpoint. Provider credentials stay on the host.
+      const response = await fetch(`/api/v1/connections/${encodeURIComponent(connectionId)}/models`, { credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: controller.signal })
+      if (!response.ok) throw Error('Model catalogue unavailable.')
+      const result: unknown = await response.json()
+      if (!result || typeof result !== 'object') throw Error('Invalid model catalogue.')
+      const data = result as { models?: unknown; error?: unknown; model_labels?: Record<string, unknown> }
+      if (data.error || !Array.isArray(data.models) || !data.models.every(model => typeof model === 'string')) throw Error('Model catalogue unavailable.')
+      if (this.disposed || this.modelFetch !== controller || this.select('connection').value !== connectionId) return
+      const configured = this.connections.find(c => c.id === connectionId)?.model ?? ''
+      const models = [...new Set([configured, ...data.models].filter(Boolean))]
+      this.element.querySelector('[data-agent="models"]')!.replaceChildren(...models.map(id => { const option = new Option(typeof data.model_labels?.[id] === 'string' ? data.model_labels[id] as string : id, id); return option }))
+      status.textContent = `${data.models.length} models loaded. You can also enter a model ID.`
+    } catch {
+      if (!this.disposed && this.modelFetch === controller) status.textContent = 'Could not load models. Use the connection default or enter a model ID; Refresh models retries.'
+    } finally {
+      clearTimeout(timeout)
+      if (this.modelFetch === controller) { this.modelFetch = null; if (!this.disposed) this.updateControls() }
+    }
+  }
   private area(name: string): HTMLTextAreaElement { return this.element.querySelector(`[data-agent="${name}"]`)! }
   private button(name: string): HTMLButtonElement { return this.element.querySelector(`[data-agent="${name}"]`)! }
   private status(text: string): void { this.element.querySelector('[data-agent="status"]')!.textContent = text }
@@ -176,14 +244,17 @@ export class AgentWorkspace {
     send.title = this.busy ? 'Stop' : 'Send'
     send.innerHTML = this.busy ? AGENT_ICONS.stop : AGENT_ICONS.send
     this.area('content').readOnly = this.busy || !!this.options.snapshot().blocks.find(b => b.id === this.selectedId)?.isLocked
+    this.button('refresh-models').disabled = this.busy || !!this.modelFetch || !this.select('connection').value
     this.modelInput().disabled = this.busy || !this.select('connection').value
     this.select('connection').disabled = this.busy
     this.select('server').disabled = this.busy
+    this.button('retry').hidden = !this.failedInstruction
+    this.button('retry').disabled = this.busy || !this.select('connection').value
   }
   private message(role: 'user' | 'assistant', text: string): void {
     const node = document.createElement('div'), label = document.createElement('strong')
     node.className = 'workshop-agent-message'; label.textContent = role === 'user' ? 'You' : 'Assistant'
-    node.append(label, document.createTextNode(text))
+    node.append(label, ...(role === 'assistant' ? [renderAgentMarkdown(text)] : [document.createTextNode(text)]))
     const log = this.element.querySelector('[data-agent="log"]')!
     log.append(node); log.scrollTop = log.scrollHeight
   }
@@ -232,17 +303,22 @@ export class AgentWorkspace {
     input.style.height = 'auto'
     input.style.height = `${Math.min(180, Math.max(48, input.scrollHeight))}px`
   }
-  private run(): void {
-    if (this.busy || !this.select('connection').value || !this.area('instruction').value.trim()) return
+  private run(retryInstruction?: string): void {
+    if (this.busy || !this.select('connection').value || !(retryInstruction ?? this.area('instruction').value).trim()) return
     try {
-      const preset = this.options.snapshot(), instruction = this.area('instruction').value.trim()
-      this.request = { id: crypto.randomUUID(), fingerprint: presetFingerprint(preset), history: [...this.history, { role: 'user', content: instruction }] }
+      const preset = this.options.snapshot(), instruction = (retryInstruction ?? this.area('instruction').value).trim()
+      this.request = { id: crypto.randomUUID(), fingerprint: presetFingerprint(preset), instruction, history: [...this.history, { role: 'user', content: instruction }] }
+      this.failedInstruction = null
       this.busy = true; this.updateControls(); this.status('Working in a detached draft…')
-      this.message('user', instruction)
+      if (!retryInstruction) this.message('user', instruction)
+      const thinking = document.createElement('details'), summary = document.createElement('summary')
+      thinking.className = 'workshop-agent-thinking'; thinking.hidden = true; summary.textContent = 'Thinking'
+      this.thinking = document.createElement('pre'); thinking.append(summary, this.thinking)
+      this.element.querySelector('[data-agent="log"]')!.append(thinking)
       this.element.querySelector('[data-agent="activity"]')!.textContent = ''
-      this.timer = setTimeout(() => this.cancel('Agent timed out. No generated changes were staged.'), 125000)
+      this.timer = setTimeout(() => this.cancel('Agent timed out. No generated changes were staged.', true), 125000)
       this.ctx.sendToBackend({ type: 'workshop:agent-run', requestId: this.request.id, connectionId: this.select('connection').value, model: this.modelInput().value.trim(), serverId: this.select('server').value, instruction, history: this.history, preset, context: this.options.context() })
-      this.area('instruction').value = ''
+      if (!retryInstruction) this.area('instruction').value = ''
       this.resizeComposer()
     } catch (error) { this.cancel(error instanceof Error ? error.message : 'Could not start agent.') }
   }
@@ -253,11 +329,15 @@ export class AgentWorkspace {
       this.connections = p.connections ?? []
       this.select('connection').replaceChildren(new Option('Choose a connection', ''), ...this.connections.map(c => new Option(`${c.name}${c.model ? ` · ${c.model}` : ''}`, c.id)))
       if (p.connections?.length === 1) this.select('connection').value = p.connections[0].id
-      this.resetModel()
+      this.resetModel(); void this.loadModels()
       this.select('server').replaceChildren(new Option('Built-in tools', ''), ...(p.servers ?? []).map(s => new Option(s.name, s.id)))
       this.status(p.error ?? 'Ready. Sending shares this preset context with the selected connection.'); this.updateControls(); return
     }
     if (!this.request || p.requestId !== this.request.id) return
+    if (p.type === 'workshop:agent-thinking') {
+      if (this.thinking && p.content) { this.thinking.parentElement!.hidden = false; this.thinking.textContent += `${this.thinking.textContent ? '\n\n' : ''}${p.content}` }
+      return
+    }
     if (p.type === 'workshop:agent-progress') {
       this.element.querySelector('[data-agent="activity"]')!.textContent += `${p.content ?? ''}\n`; return
     }
@@ -271,12 +351,14 @@ export class AgentWorkspace {
       this.history = [...request.history, { role: 'assistant', content: p.content ?? '' }]
       this.message('assistant', p.content ?? 'Finished.'); this.status('Finished. Review local drafts and preview before Apply.')
     } catch (error) {
+      if (p.error) this.failedInstruction = request.instruction
       if (p.content) this.message('assistant', p.content)
       this.status(error instanceof Error ? error.message : 'Could not stage agent result.')
     }
     this.refresh(); this.area('instruction').focus({ preventScroll: true })
   }
-  cancel(message = 'Stopped. No generated changes were staged.'): void {
+  cancel(message = 'Stopped. No generated changes were staged.', retry = false): void {
+    this.failedInstruction = retry ? this.request?.instruction ?? null : null
     if (this.request) this.ctx.sendToBackend({ type: 'workshop:agent-cancel', requestId: this.request.id })
     this.request = null; this.busy = false
     if (this.timer) clearTimeout(this.timer); this.timer = null
@@ -299,6 +381,7 @@ export class AgentWorkspace {
     })
   }
   destroy(): void {
+    this.modelFetch?.abort(); this.modelFetch = null
     this.cancel(); this.disposed = true; this.finishExit?.(null); this.unsubscribe()
     const nav = this.options.navigation, home = this.navigationHome
     home.parent.insertBefore(nav, home.next)

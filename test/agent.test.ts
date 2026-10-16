@@ -59,6 +59,7 @@ test('provider tool continuation preserves IDs and reasoning; MCP file tools tra
   const source = request(); source.serverId = 's'
   await coordinator.handle(source, 'user')
   expect(remoteCalls).toEqual([])
+  expect(output.find(p => p.type === 'workshop:agent-thinking')?.content).toBe('provider reasoning')
   expect(source.preset.blocks[0].content).toBe('{{var::one}}')
   expect(output.at(-1)?.preset?.blocks[0].content).toBe('fixed')
   expect(output.every(p => p.userId === 'user')).toBe(true)

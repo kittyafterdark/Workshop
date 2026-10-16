@@ -8,6 +8,7 @@ function fixture() {
   let sequence = 0
   const files = new Map<string, { text: string; expiry: number }>()
   const store = new PresetBackupStore({
+    async delete(path) { files.delete(path) },
     async read(path) { const file = files.get(path); if (!file) throw Error('Missing'); return file.text },
     async write(path, text, options) { files.set(path, { text, expiry: now + options.ttlMs }) },
     async list(prefix = '') { return [...files.keys()].filter(path => path.startsWith(prefix)).map(path => path.slice(prefix.length).replaceAll('/', '\\')) },
@@ -52,7 +53,7 @@ describe('Preset backups', () => {
     expect(files.size).toBe(0)
   })
   test('propagates storage failures rather than returning an imaginary saved backup', async () => {
-    const store = new PresetBackupStore({ async read() { return '' }, async list() { return [] }, async clearExpired() { return 0 }, async write() { throw Error('Full') } })
+    const store = new PresetBackupStore({ async delete() {}, async read() { return '' }, async list() { return [] }, async clearExpired() { return 0 }, async write() { throw Error('Full') } })
     await expect(store.create(preset(), 'manual', 'user')).rejects.toThrow('Full')
   })
   test('whole preset restore stays detached, refuses changed settings, and preserves host timestamps', () => {

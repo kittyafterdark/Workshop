@@ -4,6 +4,10 @@
   "workspaces": {
     "": {
       "name": "lumiverse-workshop",
+      "dependencies": {
+        "dompurify": "^3.4.17",
+        "marked": "^18.1.1",
+      },
       "devDependencies": {
         "lumiverse-spindle-types": "0.6.31",
         "typescript": "^5.9.2",
@@ -11,7 +15,13 @@
     },
   },
   "packages": {
+    "@types/trusted-types": ["@types/trusted-types@2.0.7", "", {}, "sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw=="],
+
+    "dompurify": ["dompurify@3.4.17", "", { "optionalDependencies": { "@types/trusted-types": "^2.0.7" } }, "sha512-B/pSlYVHQ58kqISD/yDjuJ1yfzI34m1gF4lAod2bwSRhiN4K5Cl3H8Af7hqB2PmTL911tdEudnnXn5FnhRoz0w=="],
+
     "lumiverse-spindle-types": ["lumiverse-spindle-types@0.6.31", "", {}, "sha512-Wxokmc3F/BxsTDlalpW4yErsQjpvJ/PsKFzscFZVZ08SdRJHCBbIlMFvSFk58b/qdxLHiicwoRUlMpBkX5w+Ug=="],
+
+    "marked": ["marked@18.1.1", "", { "bin": { "marked": "bin/marked.js" } }, "sha512-zEGgrtUG8crk+TrMacJSVABU4DYDDkS8uqgU3ohrn/2fW9C2AEfUrO3m6IhpIpQpl7YcVpiXXC9cSMWDANT3dg=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
   }

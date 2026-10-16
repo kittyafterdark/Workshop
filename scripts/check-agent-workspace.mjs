@@ -15,6 +15,9 @@ try {
   for (const width of [1440, 390]) {
     const height = width < 900 ? 844 : 900
     const page = await browser.newPage({ viewport: { width, height } })
+    let catalogue = ['Fixture model', 'Alternate model']
+    let catalogueFailure = false
+    await page.route('**/api/v1/connections/*/models', route => route.fulfill({ json: catalogueFailure ? { error: 'Offline', models: [] } : { models: catalogue } }))
     const errors = []
     page.on('pageerror', e => errors.push(e.message))
     await page.goto(`http://127.0.0.1:${server.address().port}`)
@@ -93,6 +96,18 @@ try {
     assert.equal(await workspace.getByLabel('Draft content', { exact: true }).inputValue(), 'manual draft')
     const instruction = workspace.getByLabel('Ask the preset assistant', { exact: true })
     const model = workspace.getByLabel('Model', { exact: true })
+    await workspace.getByText('2 models loaded. You can also enter a model ID.', { exact: true }).waitFor()
+    assert.deepEqual(await workspace.locator('[data-agent="models"] option').evaluateAll(nodes => nodes.map(n => n.value)), catalogue)
+    catalogue = [...catalogue, 'New model']
+    await model.fill('Alternate model')
+    await workspace.getByRole('button', { name: 'Refresh models', exact: true }).click()
+    await workspace.getByText('3 models loaded. You can also enter a model ID.', { exact: true }).waitFor()
+    assert.equal(await model.inputValue(), 'Alternate model')
+    catalogueFailure = true
+    await workspace.getByRole('button', { name: 'Refresh models', exact: true }).click()
+    await workspace.getByText(/Could not load models/).waitFor()
+    assert.equal(await model.isEnabled(), true)
+    catalogueFailure = false
     assert.equal(await model.getAttribute('placeholder'), 'Connection default · Fixture model')
     await model.fill('Discard this override')
     await workspace.getByLabel('Lumi connection', { exact: true }).selectOption('')
@@ -122,12 +137,42 @@ try {
     assert.ok(await page.evaluate(() => Object.keys(localStorage).some(key => key.startsWith('backup:'))))
     // Explicit MCP selection still never executes file tools remotely.
     await workspace.locator('summary').filter({ hasText: 'Tool activity' }).click()
+    await workspace.locator('.workshop-agent-compatibility summary').click()
     await workspace.getByLabel('PresetTools compatibility', { exact: true }).selectOption('tools')
     await workspace.getByLabel('Ask the preset assistant', { exact: true }).fill('Inspect with compatibility')
     await workspace.getByRole('button', { name: 'Send', exact: true }).click()
     await page.waitForFunction(() => document.querySelector('[data-agent="send"]').getAttribute('aria-label') === 'Send')
     assert.equal(await page.evaluate(() => window.remoteToolCalls || 0), 0)
     assert.equal(await page.evaluate(() => window.lastModel), 'Fixture model')
+    await workspace.locator('.workshop-agent-thinking summary').last().click()
+    await workspace.locator('.workshop-agent-thinking').last().getByText('Fixture provider reasoning', { exact: true }).waitFor()
+    await page.evaluate(() => { window.agentFailure = true })
+    await instruction.fill('Retry this instruction')
+    await workspace.getByRole('button', { name: 'Send', exact: true }).click()
+    await workspace.getByText('Fixture provider failed', { exact: true }).waitFor()
+    const users = await workspace.locator('.workshop-agent-message').filter({ hasText: 'Retry this instruction' }).count()
+    await instruction.fill('Keep my next message')
+    await page.evaluate(() => {
+      window.agentFailure = false
+      window.agentReply = ['## Draft review', '', '**Bold text** and `{{var::one}}`.', '', '- First item', '- Second item', '', '| Name | Value |', '| --- | --- |', '| one | 1 |', '', '```text', '{{var::one}}', '```', '', '[safe](https://example.com) [bad](javascript:alert(1))', '<img src=x onerror="window.markdownUnsafe=true"><script>window.markdownUnsafe=true</script>'].join('\n')
+    })
+    await workspace.getByRole('button', { name: 'Retry last request', exact: true }).click()
+    await workspace.getByText('Finished. Review local drafts and preview before Apply.', { exact: true }).waitFor()
+    assert.equal(await instruction.inputValue(), 'Keep my next message')
+    assert.equal(await workspace.locator('.workshop-agent-message').filter({ hasText: 'Retry this instruction' }).count(), users)
+    assert.equal(await workspace.getByRole('button', { name: 'Retry last request', exact: true }).count(), 0)
+    const markdown = workspace.locator('.workshop-agent-message-body').last()
+    await markdown.getByRole('heading', { name: 'Draft review', exact: true }).waitFor()
+    assert.equal(await markdown.getByRole('listitem').count(), 2)
+    assert.equal(await markdown.getByRole('table').count(), 1)
+    assert.equal(await markdown.locator('pre code').textContent(), '{{var::one}}\n')
+    assert.equal(await markdown.locator('strong').evaluate(el => getComputedStyle(el).display), 'inline')
+    assert.equal(await markdown.getByRole('link', { name: 'safe', exact: true }).getAttribute('rel'), 'noopener noreferrer')
+    assert.equal(await markdown.locator('a').filter({ hasText: 'bad' }).getAttribute('href'), null)
+    assert.equal(await markdown.locator('script,img,style,[onerror]').count(), 0)
+    assert.equal(await page.evaluate(() => window.markdownUnsafe), undefined)
+    if (process.env.SANDBOX_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.SANDBOX_SCREENSHOT_DIR, `workshop-agent-rich-${width}.png`) })
+
     // Stop, then deliver a late provider result: it must not stage anything.
     await page.evaluate(() => { window.generationDelay = true })
     await workspace.getByLabel('Ask the preset assistant', { exact: true }).fill('Delayed edit')
@@ -200,6 +245,7 @@ try {
     assert.equal(await page.evaluate(() => window.writes), 1)
     // Controlled category cascade reuses Workshop's expansion and restores its state on leaving.
     await page.reload()
+    await page.getByRole('button', { name: 'Open Workshop', exact: true }).waitFor()
     await page.evaluate(() => window.addCategories())
     await page.getByRole('button', { name: 'Open Workshop', exact: true }).click()
     await page.getByRole('button', { name: 'Agent', exact: true }).click()

@@ -1,6 +1,6 @@
 {
   "name": "lumiverse-workshop",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,5 +12,9 @@
   "devDependencies": {
     "lumiverse-spindle-types": "0.6.31",
     "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.17",
+    "marked": "^18.1.1"
   }
 }

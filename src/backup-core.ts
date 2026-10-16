@@ -7,11 +7,12 @@ export interface PresetBackup {
   userId: string
   createdAt: number
   expiresAt: number
-  kind: 'manual' | 'before-apply'
+  kind: 'manual' | 'before-apply' | 'automatic'
   preset: SpindlePresetEditorDraft
 }
 export type BackupSummary = Omit<PresetBackup, 'preset' | 'userId' | 'version'> & { name: string; blockCount: number }
 export interface BackupDisk {
+  delete(path: string): Promise<void>
   read(path: string): Promise<string>
   write(path: string, data: string, options: { ttlMs: number }): Promise<void>
   list(prefix?: string): Promise<string[]>
@@ -60,6 +61,13 @@ export class PresetBackupStore {
     await this.disk.write(path, JSON.stringify(backup, null, 2), { ttlMs: BACKUP_TTL_MS })
     return backup
   }
+  async prune(presetId: string, userId: string, keep: number, protectedPath?: string): Promise<void> {
+    if (!Number.isInteger(keep) || keep < 0) throw Error('Invalid backup count.')
+    if (!keep) return
+    const backups = await this.list(presetId, userId)
+    const protectedCount = backups.some(backup => backup.path === protectedPath) ? 1 : 0
+    for (const backup of backups.filter(backup => backup.path !== protectedPath).slice(keep - protectedCount)) await this.disk.delete(backup.path)
+  }
   async read(path: string, presetId: string, userId: string): Promise<PresetBackup> {
     if (!managedPath(path)) throw new Error('Invalid backup path.')
     const value: unknown = JSON.parse(await this.disk.read(path))
@@ -68,7 +76,7 @@ export class PresetBackupStore {
       || typeof value.createdAt !== 'number' || !Number.isFinite(value.createdAt)
       || typeof value.expiresAt !== 'number' || value.expiresAt <= this.now()
       || value.expiresAt !== value.createdAt + BACKUP_TTL_MS
-      || (value.kind !== 'manual' && value.kind !== 'before-apply')) throw new Error('Backup expired, belongs to another preset, or is invalid.')
+      || (value.kind !== 'manual' && value.kind !== 'before-apply' && value.kind !== 'automatic')) throw new Error('Backup expired, belongs to another preset, or is invalid.')
     return value as unknown as PresetBackup
   }
   async list(presetId: string, userId: string): Promise<BackupSummary[]> {
