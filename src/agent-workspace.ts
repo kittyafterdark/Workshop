@@ -334,6 +334,8 @@ export class AgentWorkspace {
       this.failedInstruction = null
       this.busy = true; this.updateControls(); this.status('Working in a detached draft…')
       if (!retryInstruction) this.message('user', instruction)
+      // A retry replaces only this failed attempt's reasoning; earlier requests remain visible.
+      if (retryInstruction) this.thinking?.parentElement?.remove()
       const thinking = document.createElement('details'), summary = document.createElement('summary')
       thinking.className = 'workshop-agent-thinking'; thinking.hidden = true; summary.textContent = 'Thinking'
       this.thinking = document.createElement('pre'); thinking.append(summary, this.thinking)

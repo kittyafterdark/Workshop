@@ -2,6 +2,10 @@
 
 Release history for Workshop. These entries describe behavior at the time of each release; see the [README](README.md) for the current guide.
 
+## 0.9.2 retry thinking cleanup
+
+- Retry replaces the failed attempt's Thinking block instead of stacking another one. Thinking from earlier requests, local drafts and the next typed message are retained.
+
 ## 0.9.1 macro reference for the preset assistant
 
 - The assistant receives variable-scope guidance and a searchable, paginated `workshop_macro_reference` tool backed by Lumi's registered macro catalogue, refreshed per request.

@@ -4886,6 +4886,8 @@ class AgentWorkspace {
       this.status("Working in a detached draft…");
       if (!retryInstruction)
         this.message("user", instruction);
+      if (retryInstruction)
+        this.thinking?.parentElement?.remove();
       const thinking = document.createElement("details"), summary = document.createElement("summary");
       thinking.className = "workshop-agent-thinking";
       thinking.hidden = true;
