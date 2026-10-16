@@ -2,6 +2,12 @@
 
 Release history for Workshop. These entries describe behavior at the time of each release; see the [README](README.md) for the current guide.
 
+## 0.10.0 reference preset (staging)
+
+- Reference shares the preview panel with Stack and Resolved: choose a second saved preset, browse collapsible sections, search and copy raw prompt text read-only.
+- Reuses panel docking/hide/resize controls, with more reading space on phones. Selection survives preview and agent view switches until Workshop closes.
+- Public preset reads remain user-scoped; reference data never enters editable drafts, backups or assistant context. Reference suspends dry-run assembly and handles failed/deleted presets and stale reads.
+
 ## 0.9.2 retry thinking cleanup
 
 - Retry replaces the failed attempt's Thinking block instead of stacking another one. Thinking from earlier requests, local drafts and the next typed message are retained.

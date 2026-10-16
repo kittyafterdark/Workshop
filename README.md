@@ -15,6 +15,7 @@ Workshop extends Lumi's Loom preset editor with room to work on large presets. I
 | Prompt workspace | Search prompts, collapse categories, and edit two prompts side by side. |
 | Unsynced editing | Work across multiple prompts while keeping changes local until Apply. |
 | Variable sandbox | Try mock values in grouped controls without changing real variable selections. |
+| Reference preset | Browse and copy a second saved preset read-only alongside your editable draft. |
 | Assembly preview | Inspect the resolved messages or assembly stack using your local edits and mocks. |
 | Issue reviewer | Step through diagnostics, fix prompts, and apply the finished batch together. |
 | Preset backups | Create recovery snapshots, restore locally, and configure timed backups and retention. |
@@ -34,6 +35,8 @@ Workshop needs a Lumiverse build with Spindle extensions and the controlled Loom
 3. Enable Workshop and review its permissions. Allow transient storage and give the extension enough storage allocation for backups; Apply creates a recovery snapshot before writing changes.
 4. Open a preset in **Loom**, then choose **Workshop** from the preset toolbar.
 5. Open a chat if you want to use the live assembly preview.
+
+The Reference preset preview is currently on the **staging** branch. Choose staging in the extension installer to test it; main remains the published stable release.
 
 Built releases are pushed to **main**. Install updates from Lumi's **Extensions** tab.
 
@@ -76,6 +79,14 @@ The preview combines the active chat with your local prompt edits and mocks. **S
 Choose **Review issues** beside Diagnostics to open the issue reviewer. It covers unknown variable references, duplicate definitions, unused variables and ambiguous block IDs.
 
 Use **Previous** and **Next** to move through the queue, edit with the mounted native prompt editor, and **Save** locally. **Recheck** rebuilds the diagnostic queue from your edits. Closing the reviewer retains those edits in the open Workshop session. **Apply** writes the shared draft batch, including any other local prompt edits.
+
+## Read a second preset
+
+Choose **Reference** beside **Resolved** and **Stack** in the preview panel, then pick a second preset. Browse its collapsible prompt sections, search names and content, and select a prompt to read or copy its text. **Copy reference prompt** copies the full raw prompt, including macros. The text is selectable and read-only.
+
+Reference uses a saved snapshot, so unsynced edits in another editor are not included. **Refresh reference preset** reloads the list and selected preset. The same hide, resize and docking controls apply; phones keep the panel at the bottom. Switching back to Stack or Resolved resumes dry-run assembly. Your reference selection lasts until Workshop closes.
+
+The reference cannot be edited, applied or passed to the assistant. It does not change the mounted preset, local drafts, mocks or backups, and reading it never resolves its macros. Dry-run assembly pauses while Reference is selected.
 
 ## Backups and recovery
 
@@ -165,6 +176,7 @@ node scripts/check-variable-sandbox.mjs
 node scripts/check-issue-review.mjs
 node scripts/check-agent-workspace.mjs
 node scripts/check-backup-settings.mjs
+node scripts/check-reference-view.mjs
 ```
 
 Set `PLAYWRIGHT_MODULE` to an absolute path to Playwright's `index.mjs` if it is installed outside this project. The fixtures use mocked host components, storage and providers, and cover desktop/mobile interaction without modifying personal presets or calling a live model.

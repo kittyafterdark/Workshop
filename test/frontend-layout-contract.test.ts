@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 
-const source = readFileSync(new URL('../src/frontend.ts', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../src/frontend.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 
 describe('Workshop frontend layout contract', () => {
   test('uses the host modal but promotes its extension-owned modal surface to true fullscreen', () => {
@@ -134,9 +134,9 @@ describe('Workshop frontend layout contract', () => {
   })
 
   test('defaults dry-run preview to Stack while keeping Resolved available', () => {
-    expect(source).toContain("let previewTab: 'resolved' | 'stack' = 'stack'")
-    expect(source).toContain('data-preview-tab="resolved">Resolved</button>')
-    expect(source).toContain('data-preview-tab="stack" class="active">Stack</button>')
+    expect(source).toContain("let previewTab: 'resolved' | 'stack' | 'reference' = 'stack'")
+    expect(source).toContain('data-preview-tab="resolved" aria-pressed="false">Resolved</button>')
+    expect(source).toContain('data-preview-tab="stack" class="active" aria-pressed="true">Stack</button>')
   })
 
   test('makes dry-run preview draggable, searchable, and content-collapsible', () => {
@@ -152,7 +152,7 @@ describe('Workshop frontend layout contract', () => {
   test('collapsing a side preview returns it to the bottom toolbar and stops assembly work', () => {
     expect(source).toContain('.workshop-shell.preview-split:not(.preview-collapsed) .workshop-center')
     expect(source).toContain('.workshop-shell.preview-collapsed .workshop-center')
-    expect(source).toContain('if (destroyed || previewCollapsed) return')
+    expect(source).toContain("if (destroyed || previewCollapsed || previewTab === 'reference') return")
     expect(source).toContain("type: 'workshop:cancel-preview'")
     expect(source).toContain('schedulePreview(true)')
   })

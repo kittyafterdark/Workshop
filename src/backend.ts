@@ -1,3 +1,4 @@
+import { ReferenceReader } from './reference-backend.js'
 import { WorkshopAgentCoordinator } from './agent-backend.js'
 import { WorkshopPreviewCoordinator } from './backend-core.js'
 import { isWorkshopFrontendMessage } from './shared.js'
@@ -11,6 +12,7 @@ const previews = new WorkshopPreviewCoordinator({
   assemble: (input, userId) => spindle.assemble(input, userId),
   sendToFrontend: (payload, userId) => spindle.sendToFrontend(payload, userId),
 })
+const references = new ReferenceReader(spindle.presets, (payload, userId) => spindle.sendToFrontend(payload, userId))
 const agents = new WorkshopAgentCoordinator(spindle)
 const backups = new BackupManager(new PresetBackupStore(spindle.ephemeral), spindle.userStorage)
 // Cleanup also runs on every backup operation; the host TTL survives extension reloads.
@@ -19,6 +21,7 @@ prune()
 setInterval(prune, 60 * 60 * 1000)
 
 spindle.onFrontendMessage((payload, userId) => {
+  if (payload && typeof payload === 'object' && ['workshop:reference-list', 'workshop:reference-get'].includes(String((payload as { type?: unknown }).type))) { void references.handle(payload, userId); return }
   if (payload && typeof payload === 'object' && String((payload as { type?: unknown }).type).startsWith('workshop:agent-')) { void agents.handle(payload, userId); return }
   if (isWorkshopBackupRequest(payload)) {
     void backups.handle(payload, userId).then(response => spindle.sendToFrontend(response, userId))

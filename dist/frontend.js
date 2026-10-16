@@ -505,6 +505,236 @@ class WorkshopIssueReview {
   }
 }
 
+// src/reference-view.ts
+var REFERENCE_CSS = `
+.workshop-reference[hidden] {display:none}
+.workshop-reference {min-height:0;min-width:0;display:flex;flex-direction:column;overflow:auto;padding:10px;gap:8px}
+.workshop-reference-controls {flex-shrink:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.workshop-reference-controls>div {flex:1;min-width:160px}
+.workshop-reference-controls label {font-size:11px;color:var(--lumiverse-text-muted)}
+.workshop-reference select,.workshop-reference input {display:block;width:100%;min-width:0;padding:7px;border:1px solid var(--lumiverse-border);border-radius:7px;background:var(--lumiverse-input-bg,var(--lumiverse-bg));color:var(--lumiverse-text);font:inherit}
+.workshop-reference>input {flex-shrink:0}
+.workshop-reference-status {flex-shrink:0;font-size:11px;color:var(--lumiverse-text-muted);margin:0}
+.workshop-reference-body {display:grid;grid-template-columns:minmax(130px,30%) minmax(0,1fr);gap:10px;min-height:150px;flex:1}
+.workshop-reference-nav {overflow:auto;min-height:0;min-width:0;border:1px solid var(--lumiverse-border);border-radius:8px;padding:6px}
+.workshop-reference-nav summary {cursor:pointer;padding:7px;font-size:12px;overflow-wrap:anywhere}
+.workshop-reference-nav button {display:block;width:100%;text-align:left;padding:8px;margin:3px 0;white-space:normal;overflow-wrap:anywhere}
+.workshop-reference-nav button[aria-current=true] {border-color:var(--lumiverse-primary);background:var(--lumiverse-fill-subtle,rgba(128,128,128,.15))}
+.workshop-reference-document {display:flex;flex-direction:column;min-width:0;min-height:0;gap:6px}
+.workshop-reference-document h3 {font-size:13px;margin:0;overflow-wrap:anywhere}
+.workshop-reference-document label {font-size:11px;color:var(--lumiverse-text-muted)}
+.workshop-reference-document textarea {flex:1;min-height:70px;width:100%;resize:none;border:1px solid var(--lumiverse-border);border-radius:8px;padding:10px;background:var(--lumiverse-input-bg,var(--lumiverse-bg));color:var(--lumiverse-text);font:12px/1.6 var(--lumiverse-font-mono,monospace)}
+@media(max-width:900px){.workshop-shell.reference-mode:not(.preview-collapsed) .workshop-center,.workshop-shell.reference-mode.preview-split:not(.preview-collapsed) .workshop-center {grid-template-rows:minmax(0,1fr) 5px min(60vh,max(360px,var(--wk-preview-height)))}.workshop-preview-label {display:none}}
+@media(max-width:600px){.workshop-reference-body {grid-template-columns:minmax(110px,35%) minmax(0,1fr)}.workshop-reference {padding:7px}}
+`;
+
+class ReferenceView {
+  ctx;
+  mountedId;
+  element = document.createElement("div");
+  disposed = false;
+  started = false;
+  sequence = 0;
+  preset = null;
+  selected = null;
+  collapsed = new Set;
+  pending = new Map;
+  unsubscribe;
+  picker;
+  search;
+  nav;
+  text;
+  title;
+  status;
+  copy;
+  constructor(ctx, mountedId) {
+    this.ctx = ctx;
+    this.mountedId = mountedId;
+    this.element.className = "workshop-reference";
+    this.element.hidden = true;
+    this.element.setAttribute("role", "region");
+    this.element.setAttribute("aria-label", "Reference preset");
+    const id = `reference-${crypto.randomUUID()}`;
+    this.element.innerHTML = `<div class="workshop-reference-controls"><div><label for="${id}-preset">Reference preset</label><select id="${id}-preset"><option value="">Choose a second preset</option></select></div><button type="button" class="workshop-text-button" data-reference-refresh>Refresh reference presets</button></div><p class="workshop-reference-status" role="status"></p><input type="search" placeholder="Search reference prompts…" aria-label="Search reference prompts"><div class="workshop-reference-body"><nav class="workshop-reference-nav" aria-label="Reference prompts"></nav><section class="workshop-reference-document" aria-label="Reference prompt"><h3>Select a reference prompt</h3><button class="workshop-text-button" type="button" data-reference-copy disabled>Copy reference prompt</button><label for="${id}">Read-only prompt content</label><textarea id="${id}" readonly spellcheck="false"></textarea></section></div>`;
+    this.picker = this.element.querySelector("select");
+    this.search = this.element.querySelector("input");
+    this.nav = this.element.querySelector("nav");
+    this.text = this.element.querySelector("textarea");
+    this.title = this.element.querySelector("h3");
+    this.status = this.element.querySelector("[role=status]");
+    this.copy = this.element.querySelector("[data-reference-copy]");
+    this.unsubscribe = ctx.onBackendMessage((payload) => {
+      if (!payload || typeof payload !== "object")
+        return;
+      const p = payload;
+      if (p.type !== "workshop:reference-result")
+        return;
+      const pending = this.pending.get(p.requestId);
+      if (!pending)
+        return;
+      clearTimeout(pending.timer);
+      this.pending.delete(p.requestId);
+      if (p.error)
+        pending.reject(Error(p.error));
+      else
+        pending.resolve(p);
+    });
+    this.picker.addEventListener("change", () => {
+      this.search.value = "";
+      this.selected = null;
+      this.collapsed.clear();
+      this.loadSelected();
+    });
+    this.search.addEventListener("input", () => this.renderNav());
+    this.element.querySelector("[data-reference-refresh]").addEventListener("click", () => {
+      this.refresh();
+    });
+    this.copy.addEventListener("click", () => {
+      const content = this.text.value;
+      Promise.resolve().then(() => navigator.clipboard.writeText(content)).then(() => {
+        if (!this.disposed)
+          this.status.textContent = "Reference prompt copied.";
+      }, () => {
+        if (this.disposed)
+          return;
+        this.text.focus();
+        this.text.select();
+        this.status.textContent = "Clipboard unavailable. Copy the selected text with your keyboard or selection menu.";
+      });
+    });
+  }
+  activate() {
+    if (!this.started) {
+      this.started = true;
+      this.refresh();
+    }
+  }
+  request(type, presetId) {
+    const requestId = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(requestId);
+        reject(Error("Reference read timed out. Refresh to retry."));
+      }, 1e4);
+      this.pending.set(requestId, { resolve, reject, timer });
+      try {
+        this.ctx.sendToBackend({ type: `workshop:reference-${type}`, requestId, presetId });
+      } catch {
+        clearTimeout(timer);
+        this.pending.delete(requestId);
+        reject(Error("Could not request reference presets."));
+      }
+    });
+  }
+  async refresh() {
+    const sequence = ++this.sequence;
+    const selected = this.picker.value;
+    this.status.textContent = "Loading reference presets…";
+    try {
+      const result = await this.request("list");
+      if (this.disposed || sequence !== this.sequence)
+        return;
+      const entries = (result.presets ?? []).filter((p) => p.id !== this.mountedId);
+      this.picker.replaceChildren(new Option(entries.length ? "Choose a second preset" : "No other presets available", ""), ...entries.map((p) => new Option(p.name, p.id)));
+      this.picker.value = entries.some((p) => p.id === selected) ? selected : "";
+      await this.loadSelected();
+    } catch (error) {
+      if (!this.disposed && sequence === this.sequence)
+        this.status.textContent = error instanceof Error ? error.message : "Could not load presets.";
+    }
+  }
+  async loadSelected() {
+    const sequence = ++this.sequence, presetId = this.picker.value;
+    const previous = this.selected;
+    this.preset = null;
+    this.selected = null;
+    this.renderNav();
+    this.renderDocument();
+    if (!presetId) {
+      this.status.textContent = "Read-only saved snapshot. Choose a second preset; unsynced edits are not included.";
+      return;
+    }
+    this.status.textContent = "Loading reference preset…";
+    try {
+      const result = await this.request("get", presetId);
+      if (this.disposed || sequence !== this.sequence)
+        return;
+      if (!result.preset || result.preset.id !== presetId)
+        throw Error("Reference preset unavailable.");
+      this.preset = result.preset;
+      this.selected = this.preset.blocks.some((b) => b.id === previous) ? previous : null;
+      this.status.textContent = `${this.preset.name} · Read-only saved snapshot; unsynced edits are not included.`;
+      this.renderNav();
+      this.renderDocument();
+    } catch (error) {
+      if (!this.disposed && sequence === this.sequence)
+        this.status.textContent = error instanceof Error ? error.message : "Could not read preset.";
+    }
+  }
+  renderNav() {
+    const scroll = this.nav.scrollTop;
+    this.nav.replaceChildren();
+    const query = this.search.value.trim().toLowerCase();
+    for (const [index, group] of computePromptGroups(this.preset?.blocks ?? []).entries()) {
+      const category = group.categoryBlock?.name ?? "Ungrouped";
+      const blocks = [group.categoryBlock, ...group.children].filter((b) => b && (!query || `${category}
+${b.name}
+${b.content}`.toLowerCase().includes(query)));
+      if (!blocks.length)
+        continue;
+      const details = document.createElement("details"), summary = document.createElement("summary");
+      const key = `${group.categoryBlock?.id ?? "ungrouped"}-${index}`;
+      details.open = !!query || !this.collapsed.has(key);
+      summary.textContent = category;
+      details.append(summary);
+      details.addEventListener("toggle", () => {
+        if (details.open)
+          this.collapsed.delete(key);
+        else
+          this.collapsed.add(key);
+      });
+      for (const block of blocks) {
+        if (!block)
+          continue;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "workshop-text-button";
+        button.textContent = block.name || "Untitled prompt";
+        if (block.id === this.selected)
+          button.setAttribute("aria-current", "true");
+        button.addEventListener("click", () => {
+          this.selected = block.id;
+          for (const other of this.nav.querySelectorAll("[aria-current]"))
+            other.removeAttribute("aria-current");
+          button.setAttribute("aria-current", "true");
+          this.renderDocument();
+        });
+        details.append(button);
+      }
+      this.nav.append(details);
+    }
+    if (this.preset && !this.nav.children.length)
+      this.nav.textContent = query ? "No matching reference prompts." : "This preset has no prompt blocks.";
+    this.nav.scrollTop = scroll;
+  }
+  renderDocument() {
+    const block = this.preset?.blocks.find((b) => b.id === this.selected);
+    this.title.textContent = block ? `${block.name} · ${block.role} · ${block.enabled ? "Enabled" : "Disabled"}` : "Select a reference prompt";
+    this.text.value = block?.content ?? "";
+    this.copy.disabled = !block;
+  }
+  destroy() {
+    this.disposed = true;
+    this.unsubscribe();
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(Error("Reference view closed."));
+    }
+    this.pending.clear();
+    this.element.remove();
+  }
+}
+
 // node_modules/marked/lib/marked.esm.js
 function B() {
   return { async: false, breaks: false, extensions: null, gfm: true, hooks: null, pedantic: false, renderer: null, silent: false, tokenizer: null, walkTokens: null };
@@ -5266,7 +5496,7 @@ var WORKSHOP_CSS = String.raw`
 .workshop-preview-resizer::after { content: ''; position: absolute; inset: 2px 0; background: transparent; }
 .workshop-preview-resizer:hover::after,
 .workshop-preview-resizer.is-dragging::after { background: var(--lumiverse-primary-025, rgba(255,255,255,.18)); }
-.workshop-preview { grid-column: 1; grid-row: 3; min-width: 0; min-height: 0; display: grid; grid-template-rows: 38px minmax(0, 1fr); border-top: 1px solid var(--lumiverse-border, rgba(255,255,255,.1)); background: var(--lumiverse-bg-dark, #141419); }
+.workshop-preview { grid-column: 1; grid-row: 3; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); border-top: 1px solid var(--lumiverse-border, rgba(255,255,255,.1)); background: var(--lumiverse-bg-dark, #141419); }
 .workshop-shell.preview-split:not(.preview-collapsed) .workshop-center { grid-template-columns: minmax(0, 1fr) 5px var(--wk-preview-width); grid-template-rows: minmax(0, 1fr); }
 .workshop-shell.preview-split:not(.preview-collapsed) .workshop-editor-region { grid-column: 1; grid-row: 1; }
 .workshop-shell.preview-split:not(.preview-collapsed) .workshop-preview-resizer { grid-column: 2; grid-row: 1; cursor: col-resize; }
@@ -5277,7 +5507,7 @@ var WORKSHOP_CSS = String.raw`
 .workshop-shell.preview-collapsed .workshop-editor-region { grid-column: 1; grid-row: 1; }
 .workshop-shell.preview-collapsed .workshop-preview-resizer { display: none; }
 .workshop-shell.preview-collapsed .workshop-preview { grid-column: 1; grid-row: 3; border-left: 0; border-top: 1px solid var(--lumiverse-border, rgba(255,255,255,.1)); }
-.workshop-preview-toolbar { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 0 8px; border-bottom: 1px solid var(--lumiverse-border, rgba(255,255,255,.08)); }
+.workshop-preview-toolbar { min-width: 0; min-height:38px; display: flex; flex-wrap:wrap; align-items: center; gap: 7px; padding: 4px 8px; border-bottom: 1px solid var(--lumiverse-border, rgba(255,255,255,.08)); }
 .workshop-preview-search { flex: 1 1 150px; min-width: 86px; max-width: 220px; height: 26px; padding: 0 8px; border: 1px solid var(--lumiverse-border-neutral, var(--lumiverse-border)); border-radius: 7px; outline: none; background: var(--lumiverse-input-bg, var(--lumiverse-bg-deep)); color: var(--lumiverse-text); font: inherit; font-size: 10px; }
 .workshop-preview-search:focus { border-color: var(--lumiverse-primary, currentColor); }
 .workshop-preview-label { font-size: 11px; font-weight: 750; letter-spacing: .08em; color: var(--lumiverse-text-muted); }
@@ -5708,8 +5938,9 @@ function createWorkshopSession(ctx, onClosed) {
           <div class="workshop-preview-toolbar">
             <span class="workshop-preview-label">PREVIEW</span>
             <div class="workshop-segment" data-role="preview-tabs">
-              <button type="button" data-preview-tab="resolved">Resolved</button>
-              <button type="button" data-preview-tab="stack" class="active">Stack</button>
+              <button type="button" data-preview-tab="resolved" aria-pressed="false">Resolved</button>
+              <button type="button" data-preview-tab="stack" class="active" aria-pressed="true">Stack</button>
+              <button type="button" data-preview-tab="reference" aria-pressed="false">Reference</button>
             </div>
             <input class="workshop-preview-search" data-role="preview-search" type="search" placeholder="Search dry run…" aria-label="Search dry run">
             <span class="workshop-preview-status" data-role="preview-status"></span>
@@ -5806,6 +6037,9 @@ function createWorkshopSession(ctx, onClosed) {
   const collapsedCategories = new Set;
   const variablePaneScroll = new Map;
   const cleanups = [restoreHostModalChrome];
+  const referenceView = new ReferenceView(ctx, sessionPresetId);
+  previewElement.append(referenceView.element);
+  cleanups.push(() => referenceView.destroy());
   let editor;
   let secondaryEditor;
   function recomputeDerived() {
@@ -7320,6 +7554,19 @@ function createWorkshopSession(ctx, onClosed) {
     }
   }
   function renderPreview() {
+    const reference = previewTab === "reference";
+    root.classList.toggle("reference-mode", reference);
+    referenceView.element.hidden = !reference || previewCollapsed;
+    previewContent.hidden = reference;
+    previewSearch.hidden = reference;
+    previewEntriesCollapseButton.hidden = reference;
+    root.querySelector('[data-action="refresh"]').setAttribute("aria-label", reference ? "Refresh reference preset" : "Refresh preview");
+    if (reference) {
+      if (!previewCollapsed)
+        referenceView.activate();
+      previewStatus.textContent = "Read-only reference";
+      return;
+    }
     previewContent.replaceChildren();
     previewElement.classList.toggle("entries-collapsed", previewEntriesCollapsed);
     if (previewCollapsed)
@@ -7416,12 +7663,14 @@ function createWorkshopSession(ctx, onClosed) {
     }
   }
   function schedulePreview(immediate = false) {
-    if (destroyed || previewCollapsed)
+    if (destroyed || previewCollapsed || previewTab === "reference")
       return;
     if (previewTimer)
       clearTimeout(previewTimer);
     const run = () => {
       previewTimer = null;
+      if (destroyed || previewCollapsed || previewTab === "reference")
+        return;
       const chatId = ctx.getActiveChat().chatId;
       lastChatId = chatId;
       if (!chatId) {
@@ -7788,8 +8037,21 @@ function createWorkshopSession(ctx, onClosed) {
   });
   root.querySelectorAll("[data-preview-tab]").forEach((tab) => {
     tab.addEventListener("click", () => {
-      previewTab = tab.dataset.previewTab === "stack" ? "stack" : "resolved";
-      root.querySelectorAll("[data-preview-tab]").forEach((other) => other.classList.toggle("active", other === tab));
+      previewTab = tab.dataset.previewTab === "reference" ? "reference" : tab.dataset.previewTab === "stack" ? "stack" : "resolved";
+      root.querySelectorAll("[data-preview-tab]").forEach((other) => {
+        other.classList.toggle("active", other === tab);
+        other.setAttribute("aria-pressed", String(other === tab));
+      });
+      if (previewTab === "reference") {
+        if (previewTimer)
+          clearTimeout(previewTimer);
+        previewTimer = null;
+        if (activePreviewRequestId)
+          ctx.sendToBackend({ type: "workshop:cancel-preview", requestId: activePreviewRequestId });
+        activePreviewRequestId = null;
+        previewLoading = false;
+      } else
+        schedulePreview(true);
       renderPreview();
     });
   });
@@ -7818,7 +8080,12 @@ function createWorkshopSession(ctx, onClosed) {
     root.classList.toggle("mobile-right-open");
     root.classList.remove("mobile-left-open");
   });
-  root.querySelector('[data-action="refresh"]').addEventListener("click", () => schedulePreview(true));
+  root.querySelector('[data-action="refresh"]').addEventListener("click", () => {
+    if (previewTab === "reference")
+      referenceView.refresh();
+    else
+      schedulePreview(true);
+  });
   previewLayoutButton.addEventListener("click", () => {
     previewSplit = !previewSplit;
     root.classList.toggle("preview-split", previewSplit);
@@ -7848,6 +8115,7 @@ function createWorkshopSession(ctx, onClosed) {
       previewLoading = false;
       renderPreview();
     } else {
+      renderPreview();
       schedulePreview(true);
     }
   });
@@ -7944,7 +8212,7 @@ function createWorkshopSession(ctx, onClosed) {
   };
 }
 function setup(ctx) {
-  const removeStyle = ctx.dom.addStyle(WORKSHOP_CSS + AGENT_CSS);
+  const removeStyle = ctx.dom.addStyle(WORKSHOP_CSS + AGENT_CSS + REFERENCE_CSS);
   const toolbarRoot = ctx.ui.mount("preset_editor_toolbar");
   const launcher = button("workshop-launcher", "Open Workshop", `${ICONS.workshop}<span>Workshop</span>`);
   toolbarRoot.classList.add("workshop-toolbar-root");

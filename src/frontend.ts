@@ -30,6 +30,7 @@ import {
   type WorkshopVariableIndex,
 } from './workshop-core.js'
 
+import { ReferenceView, REFERENCE_CSS } from './reference-view.js'
 import { AgentWorkspace, AGENT_CSS, confirmAgentApply } from './agent-workspace.js'
 
 const PREVIEW_DEBOUNCE_MS = 475
@@ -243,7 +244,7 @@ const WORKSHOP_CSS = String.raw`
 .workshop-preview-resizer::after { content: ''; position: absolute; inset: 2px 0; background: transparent; }
 .workshop-preview-resizer:hover::after,
 .workshop-preview-resizer.is-dragging::after { background: var(--lumiverse-primary-025, rgba(255,255,255,.18)); }
-.workshop-preview { grid-column: 1; grid-row: 3; min-width: 0; min-height: 0; display: grid; grid-template-rows: 38px minmax(0, 1fr); border-top: 1px solid var(--lumiverse-border, rgba(255,255,255,.1)); background: var(--lumiverse-bg-dark, #141419); }
+.workshop-preview { grid-column: 1; grid-row: 3; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); border-top: 1px solid var(--lumiverse-border, rgba(255,255,255,.1)); background: var(--lumiverse-bg-dark, #141419); }
 .workshop-shell.preview-split:not(.preview-collapsed) .workshop-center { grid-template-columns: minmax(0, 1fr) 5px var(--wk-preview-width); grid-template-rows: minmax(0, 1fr); }
 .workshop-shell.preview-split:not(.preview-collapsed) .workshop-editor-region { grid-column: 1; grid-row: 1; }
 .workshop-shell.preview-split:not(.preview-collapsed) .workshop-preview-resizer { grid-column: 2; grid-row: 1; cursor: col-resize; }
@@ -254,7 +255,7 @@ const WORKSHOP_CSS = String.raw`
 .workshop-shell.preview-collapsed .workshop-editor-region { grid-column: 1; grid-row: 1; }
 .workshop-shell.preview-collapsed .workshop-preview-resizer { display: none; }
 .workshop-shell.preview-collapsed .workshop-preview { grid-column: 1; grid-row: 3; border-left: 0; border-top: 1px solid var(--lumiverse-border, rgba(255,255,255,.1)); }
-.workshop-preview-toolbar { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 0 8px; border-bottom: 1px solid var(--lumiverse-border, rgba(255,255,255,.08)); }
+.workshop-preview-toolbar { min-width: 0; min-height:38px; display: flex; flex-wrap:wrap; align-items: center; gap: 7px; padding: 4px 8px; border-bottom: 1px solid var(--lumiverse-border, rgba(255,255,255,.08)); }
 .workshop-preview-search { flex: 1 1 150px; min-width: 86px; max-width: 220px; height: 26px; padding: 0 8px; border: 1px solid var(--lumiverse-border-neutral, var(--lumiverse-border)); border-radius: 7px; outline: none; background: var(--lumiverse-input-bg, var(--lumiverse-bg-deep)); color: var(--lumiverse-text); font: inherit; font-size: 10px; }
 .workshop-preview-search:focus { border-color: var(--lumiverse-primary, currentColor); }
 .workshop-preview-label { font-size: 11px; font-weight: 750; letter-spacing: .08em; color: var(--lumiverse-text-muted); }
@@ -685,8 +686,9 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
           <div class="workshop-preview-toolbar">
             <span class="workshop-preview-label">PREVIEW</span>
             <div class="workshop-segment" data-role="preview-tabs">
-              <button type="button" data-preview-tab="resolved">Resolved</button>
-              <button type="button" data-preview-tab="stack" class="active">Stack</button>
+              <button type="button" data-preview-tab="resolved" aria-pressed="false">Resolved</button>
+              <button type="button" data-preview-tab="stack" class="active" aria-pressed="true">Stack</button>
+              <button type="button" data-preview-tab="reference" aria-pressed="false">Reference</button>
             </div>
             <input class="workshop-preview-search" data-role="preview-search" type="search" placeholder="Search dry run…" aria-label="Search dry run">
             <span class="workshop-preview-status" data-role="preview-status"></span>
@@ -763,7 +765,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   let variableQuery = ''
   let sandboxFormMode = true
   const openVariableGroups = new Set<string>()
-  let previewTab: 'resolved' | 'stack' = 'stack'
+  let previewTab: 'resolved' | 'stack' | 'reference' = 'stack'
   let previewQuery = ''
   let previewEntriesCollapsed = false
   let previewCollapsed = false
@@ -785,6 +787,9 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   const collapsedCategories = new Set<string>()
   const variablePaneScroll = new Map<string, number>()
   const cleanups: Array<() => void> = [restoreHostModalChrome]
+  const referenceView = new ReferenceView(ctx, sessionPresetId)
+  previewElement.append(referenceView.element)
+  cleanups.push(() => referenceView.destroy())
   let editor!: SpindleLoomBlockEditorHandle
   let secondaryEditor!: SpindleLoomBlockEditorHandle
 
@@ -2152,6 +2157,18 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   }
 
   function renderPreview(): void {
+    const reference = previewTab === 'reference'
+    root.classList.toggle('reference-mode', reference)
+    referenceView.element.hidden = !reference || previewCollapsed
+    previewContent.hidden = reference
+    previewSearch.hidden = reference
+    previewEntriesCollapseButton.hidden = reference
+    root.querySelector<HTMLButtonElement>('[data-action="refresh"]')!.setAttribute('aria-label', reference ? 'Refresh reference preset' : 'Refresh preview')
+    if (reference) {
+      if (!previewCollapsed) referenceView.activate()
+      previewStatus.textContent = 'Read-only reference'
+      return
+    }
     previewContent.replaceChildren()
     previewElement.classList.toggle('entries-collapsed', previewEntriesCollapsed)
     if (previewCollapsed) return
@@ -2252,10 +2269,11 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   }
 
   function schedulePreview(immediate = false): void {
-    if (destroyed || previewCollapsed) return
+    if (destroyed || previewCollapsed || previewTab === 'reference') return
     if (previewTimer) clearTimeout(previewTimer)
     const run = () => {
       previewTimer = null
+      if (destroyed || previewCollapsed || previewTab === 'reference') return
       const chatId = ctx.getActiveChat().chatId
       lastChatId = chatId
       if (!chatId) {
@@ -2609,8 +2627,14 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
 
   root.querySelectorAll<HTMLButtonElement>('[data-preview-tab]').forEach((tab) => {
     tab.addEventListener('click', () => {
-      previewTab = tab.dataset.previewTab === 'stack' ? 'stack' : 'resolved'
-      root.querySelectorAll('[data-preview-tab]').forEach((other) => other.classList.toggle('active', other === tab))
+      previewTab = tab.dataset.previewTab === 'reference' ? 'reference' : tab.dataset.previewTab === 'stack' ? 'stack' : 'resolved'
+      root.querySelectorAll('[data-preview-tab]').forEach((other) => { other.classList.toggle('active', other === tab); other.setAttribute('aria-pressed', String(other === tab)) })
+      if (previewTab === 'reference') {
+        if (previewTimer) clearTimeout(previewTimer)
+        previewTimer = null
+        if (activePreviewRequestId) ctx.sendToBackend({ type: 'workshop:cancel-preview', requestId: activePreviewRequestId })
+        activePreviewRequestId = null; previewLoading = false
+      } else schedulePreview(true)
       renderPreview()
     })
   })
@@ -2635,7 +2659,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     root.classList.toggle('mobile-right-open')
     root.classList.remove('mobile-left-open')
   })
-  root.querySelector<HTMLButtonElement>('[data-action="refresh"]')!.addEventListener('click', () => schedulePreview(true))
+  root.querySelector<HTMLButtonElement>('[data-action="refresh"]')!.addEventListener('click', () => { if (previewTab === 'reference') void referenceView.refresh(); else schedulePreview(true) })
   previewLayoutButton.addEventListener('click', () => {
     previewSplit = !previewSplit
     root.classList.toggle('preview-split', previewSplit)
@@ -2665,6 +2689,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       previewLoading = false
       renderPreview()
     } else {
+      renderPreview()
       schedulePreview(true)
     }
   })
@@ -2763,7 +2788,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
 }
 
 export function setup(ctx: SpindleFrontendContext): () => void {
-  const removeStyle = ctx.dom.addStyle(WORKSHOP_CSS + AGENT_CSS)
+  const removeStyle = ctx.dom.addStyle(WORKSHOP_CSS + AGENT_CSS + REFERENCE_CSS)
 
   // Use the canonical host mount point rather than the registered toolbar-item
   // React bridge. The mount service owns a persistent MutationObserver and

@@ -1,3 +1,58 @@
+// src/reference-backend.ts
+class ReferenceReader {
+  presets;
+  send;
+  constructor(presets, send) {
+    this.presets = presets;
+    this.send = send;
+  }
+  async handle(payload, userId) {
+    if (!payload || typeof payload !== "object")
+      return;
+    const p = payload;
+    if (typeof p.requestId !== "string" || p.requestId.length > 200)
+      return;
+    const result = { type: "workshop:reference-result", requestId: p.requestId };
+    try {
+      if (p.type === "workshop:reference-list") {
+        result.presets = [];
+        for (let offset = 0;; ) {
+          const page = await this.presets.list({ limit: 100, offset, userId });
+          result.presets.push(...page.data.map(({ id, name }) => ({ id, name })));
+          offset += page.data.length;
+          if (offset >= page.total)
+            break;
+          if (!page.data.length || offset >= 1e4)
+            throw Error("Could not finish loading the preset list.");
+        }
+      } else if (p.type === "workshop:reference-get" && typeof p.presetId === "string" && p.presetId.length > 0 && p.presetId.length <= 500) {
+        const preset = await this.presets.get(p.presetId, userId);
+        if (!preset || preset.id !== p.presetId)
+          throw Error("This reference preset is no longer available.");
+        result.preset = { id: preset.id, name: preset.name, blocks: preset.prompt_order.map((b) => ({
+          id: b.id,
+          name: b.name,
+          content: b.content,
+          role: b.role,
+          enabled: b.enabled,
+          position: b.position,
+          depth: b.depth,
+          marker: b.marker,
+          group: b.group,
+          isLocked: b.isLocked,
+          color: b.color,
+          injectionTrigger: b.injectionTrigger
+        })) };
+      } else
+        throw Error("Invalid reference request.");
+    } catch (error) {
+      delete result.presets;
+      result.error = error instanceof Error ? error.message : "Could not read reference presets.";
+    }
+    this.send(result, userId);
+  }
+}
+
 // src/workshop-core.ts
 function parsePromptVariableReferences(content) {
   const refs = [];
@@ -804,6 +859,7 @@ var previews = new WorkshopPreviewCoordinator({
   assemble: (input, userId) => spindle.assemble(input, userId),
   sendToFrontend: (payload, userId) => spindle.sendToFrontend(payload, userId)
 });
+var references = new ReferenceReader(spindle.presets, (payload, userId) => spindle.sendToFrontend(payload, userId));
 var agents = new WorkshopAgentCoordinator(spindle);
 var backups = new BackupManager(new PresetBackupStore(spindle.ephemeral), spindle.userStorage);
 var prune = () => {
@@ -812,6 +868,10 @@ var prune = () => {
 prune();
 setInterval(prune, 60 * 60 * 1000);
 spindle.onFrontendMessage((payload, userId) => {
+  if (payload && typeof payload === "object" && ["workshop:reference-list", "workshop:reference-get"].includes(String(payload.type))) {
+    references.handle(payload, userId);
+    return;
+  }
   if (payload && typeof payload === "object" && String(payload.type).startsWith("workshop:agent-")) {
     agents.handle(payload, userId);
     return;
