@@ -6,6 +6,7 @@ export interface AgentRequest {
   type: 'workshop:agent-run'
   requestId: string
   connectionId: string
+  model?: string
   serverId: string
   preset: SpindlePresetEditorDraft
   context: AgentContext
@@ -47,6 +48,7 @@ export class WorkshopAgentCoordinator {
       return true
     }
     if (!isPresetSnapshot(p.preset) || typeof p.connectionId !== 'string' || typeof p.serverId !== 'string'
+      || (p.model !== undefined && (typeof p.model !== 'string' || p.model.length > 500))
       || typeof p.instruction !== 'string' || !p.instruction.trim() || p.instruction.length > 30000
       || !p.context || typeof p.context !== 'object' || !Array.isArray(p.history)) {
       send({ type: 'workshop:agent-result', error: 'Invalid agent request.' }); return true
@@ -61,6 +63,10 @@ export class WorkshopAgentCoordinator {
     void aborted.catch(() => {})
     try {
       const request = p as unknown as AgentRequest
+      const connection = await Promise.race([this.api.connections.get(request.connectionId, userId), aborted])
+      if (!connection || connection.id !== request.connectionId) throw Error('The selected Lumi connection is unavailable. Choose another connection.')
+      const model = request.model?.trim() || (typeof connection.model === 'string' ? connection.model.trim() : '')
+      if (!model) throw Error('Choose a model in Workshop or configure one on the selected Lumi connection before sending.')
       const context = structuredClone(request.context)
       if (!context.values || !context.mocks || !Array.isArray(context.changes)) throw Error('Invalid workspace context.')
       const draft = new AgentDraft(request.preset, context)
@@ -83,7 +89,9 @@ export class WorkshopAgentCoordinator {
       let calls = 0
       for (let round = 0; round < 8; round++) {
         if (abort.signal.aborted) throw Error('Agent run cancelled.')
-        const input: GenerationRequestDTO = { type: 'raw', connection_id: request.connectionId, userId, messages, tools: AGENT_TOOLS, signal: abort.signal }
+        // Raw generation resolves credentials from connection_id, but requires an explicit model.
+        // The pinned DTO omits this host-supported raw field.
+        const input: GenerationRequestDTO & { model: string } = { type: 'raw', connection_id: request.connectionId, model, userId, messages, tools: AGENT_TOOLS, signal: abort.signal }
         const raw = await Promise.race([this.api.generate.raw(input), aborted])
         if (abort.signal.aborted || this.active.get(key) !== job) return true
         if (!raw || typeof raw !== 'object') throw Error('The connection returned an unsupported response.')

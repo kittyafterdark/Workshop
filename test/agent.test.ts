@@ -41,7 +41,7 @@ test('file paths, unsupported writes, invalid args, ambiguous identities and loc
 const request = (id = 'run'): AgentRequest => ({ type: 'workshop:agent-run', requestId: id, connectionId: 'connection', serverId: '', preset: preset(), context: context(), instruction: 'Fix one', history: [] })
 function fixture(raw: (input: GenerationRequestDTO) => Promise<unknown>) {
   const output: Array<AgentResponse & { userId?: string }> = [], remoteCalls: string[] = []
-  const coordinator = new WorkshopAgentCoordinator({ generate: { raw }, connections: { list: async () => [{ id: 'c', name: 'Connection', model: 'model', api_url: 'SECRET', metadata: { secret: true } }] }, mcp: {
+  const coordinator = new WorkshopAgentCoordinator({ generate: { raw }, connections: { get: async (id: string) => ({ id, model: 'model' }), list: async () => [{ id: 'c', name: 'Connection', model: 'model', api_url: 'SECRET', metadata: { secret: true } }] }, mcp: {
     servers: { list: async () => ({ data: [{ id: 's', name: 'Preset tools', is_enabled: true, env_keys: ['SECRET'] }], total: 1 }), connect: async () => ({}) },
     tools: { list: async () => [{ name: 'preset_modify_block' }, { name: 'preset_save' }], call: async (name: string) => { remoteCalls.push(name); throw Error('Must never execute') } },
   }, sendToFrontend: (data: AgentResponse, userId?: string) => output.push({ ...data, userId }) } as never)
@@ -62,6 +62,7 @@ test('provider tool continuation preserves IDs and reasoning; MCP file tools tra
   expect(source.preset.blocks[0].content).toBe('{{var::one}}')
   expect(output.at(-1)?.preset?.blocks[0].content).toBe('fixed')
   expect(output.every(p => p.userId === 'user')).toBe(true)
+  expect(inputs.every(input => input.connection_id === 'connection' && (input as GenerationRequestDTO & { model: string }).model === 'model')).toBe(true)
   const assistant = inputs[1].messages!.at(-2)!
   expect(assistant.reasoning_content).toBe('provider reasoning')
   expect(JSON.stringify(assistant.content)).toContain('opaque-signature')
@@ -76,10 +77,12 @@ test('optional MCP and credential-free connection inventory do not require a mod
 })
 test('cancel suppresses late results and a newer run remains isolated', async () => {
   let release: ((value: unknown) => void) | undefined
+  let started!: () => void
+  const ready = new Promise<void>(resolve => { started = resolve })
   let calls = 0
-  const { coordinator, output } = fixture(async () => ++calls === 1 ? new Promise(resolve => { release = resolve }) : { content: 'new run' })
+  const { coordinator, output } = fixture(async () => ++calls === 1 ? new Promise(resolve => { release = resolve; started() }) : { content: 'new run' })
   const first = coordinator.handle(request('first'), 'user')
-  await Promise.resolve()
+  await ready
   await coordinator.handle({ type: 'workshop:agent-cancel', requestId: 'first' }, 'user')
   await coordinator.handle(request('second'), 'user')
   release?.({ content: 'late old result' }); await first
@@ -102,8 +105,64 @@ test('step limit stops repeated tool calls without exposing a partial draft', as
 })
 test('an unavailable optional MCP discovery falls back to local tools', async () => {
   const output: AgentResponse[] = []
-  const coordinator = new WorkshopAgentCoordinator({ generate: { raw: async () => ({ content: 'Built-in tools ready.' }) }, mcp: { servers: { connect: async () => { throw Error('Offline') } } }, sendToFrontend: (p: AgentResponse) => output.push(p) } as never)
+  const coordinator = new WorkshopAgentCoordinator({ connections: { get: async (id: string) => ({ id, model: 'model' }) }, generate: { raw: async () => ({ content: 'Built-in tools ready.' }) }, mcp: { servers: { connect: async () => { throw Error('Offline') } } }, sendToFrontend: (p: AgentResponse) => output.push(p) } as never)
   await coordinator.handle({ ...request(), serverId: 'offline' }, 'user')
   expect(output[0].content).toContain('Continuing with built-in')
   expect(output.at(-1)?.content).toBe('Built-in tools ready.')
+})
+
+test('raw runs resolve the current connection model and respect an explicit workspace override', async () => {
+  let model = 'old-model'
+  const inputs: Array<GenerationRequestDTO & { model: string }> = [], owners: string[] = [], output: AgentResponse[] = []
+  const coordinator = new WorkshopAgentCoordinator({
+    connections: { list: async () => [{ id: 'connection', model }], get: async (id: string, userId: string) => { owners.push(userId); return { id, model } } },
+    generate: { raw: async (input: GenerationRequestDTO & { model: string }) => {
+      if (!input.model) throw Error('Model name not specified')
+      inputs.push(input); return { content: 'Done' }
+    } }, sendToFrontend: (response: AgentResponse) => output.push(response),
+  } as never)
+  await coordinator.handle({ type: 'workshop:agent-config', requestId: 'config' }, 'owner')
+  model = 'current-model'
+  await coordinator.handle(request('default'), 'owner')
+  await coordinator.handle({ ...request('override'), model: ' custom-model ' }, 'owner')
+  await coordinator.handle({ ...request('blank'), model: '   ' }, 'owner')
+  expect(inputs.map(input => input.model)).toEqual(['current-model', 'custom-model', 'current-model'])
+  expect(inputs.every(input => input.connection_id === 'connection' && input.userId === 'owner')).toBe(true)
+  expect(owners).toEqual(['owner', 'owner', 'owner'])
+  expect(output.at(-1)?.error).toBeUndefined()
+})
+
+test('missing connections and unconfigured models fail before generation; an explicit model handles a blank default', async () => {
+  let profile: { id: string; model: string } | null = null
+  let calls = 0
+  const output: AgentResponse[] = []
+  const coordinator = new WorkshopAgentCoordinator({ connections: { get: async () => profile },
+    generate: { raw: async () => { calls++; return { content: 'Done' } } }, sendToFrontend: (response: AgentResponse) => output.push(response),
+  } as never)
+  await coordinator.handle(request('missing'), 'owner')
+  expect(output.at(-1)?.error).toContain('unavailable')
+  profile = { id: 'connection', model: '   ' }
+  await coordinator.handle(request('blank'), 'owner')
+  expect(output.at(-1)?.error).toContain('Choose a model')
+  expect(output.at(-1)?.preset).toBeUndefined()
+  expect(calls).toBe(0)
+  await coordinator.handle({ ...request('override'), model: 'chosen-model' }, 'owner')
+  expect(calls).toBe(1)
+  await coordinator.handle({ ...request('invalid'), model: 42 }, 'owner')
+  expect(output.at(-1)?.error).toBe('Invalid agent request.')
+  expect(calls).toBe(1)
+})
+
+test('cancelling a pending connection lookup never starts generation when the lookup returns', async () => {
+  let release!: (value: unknown) => void
+  let calls = 0
+  const output: AgentResponse[] = []
+  const coordinator = new WorkshopAgentCoordinator({ connections: { get: () => new Promise(resolve => { release = resolve }) },
+    generate: { raw: async () => { calls++; return { content: 'Late' } } }, sendToFrontend: (response: AgentResponse) => output.push(response),
+  } as never)
+  const pending = coordinator.handle(request(), 'owner')
+  await coordinator.handle({ type: 'workshop:agent-cancel', requestId: 'run' }, 'owner')
+  release({ id: 'connection', model: 'late-model' }); await pending
+  expect(calls).toBe(0)
+  expect(output).toEqual([])
 })

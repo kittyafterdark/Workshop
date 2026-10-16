@@ -6,6 +6,13 @@ Workshop is a fullscreen Loom preset workspace for Lumiverse. It keeps Lumiverse
 
 Workshop targets the controlled Loom editor contract in `lumiverse-spindle-types` 0.6.31 and the corresponding Lumiverse staging implementation.
 
+## 0.7.2 agent model selection
+
+- Fixes raw generation requests omitting the model: each run reads the current selected Lumi connection and explicitly sends its model through every tool round.
+- The assistant's second field is now an editable **Model** picker. Leave it empty to use the connection default, choose its suggested model, or enter a model ID override. Changing connection clears the override. This does not modify the saved Lumi connection; the public extension API does not expose a chat-model catalogue.
+- Optional PresetTools compatibility remains under **Tool activity**. Built-in tools still require no MCP server.
+- Missing connections or missing models fail before generation and preserve local drafts.
+
 ## 0.7.1 agent workspace polish
 
 - Floating assistant composer with one right-hand SVG action: Send becomes Stop during generation. Enter sends, Shift+Enter adds a line, and the input grows with its content.

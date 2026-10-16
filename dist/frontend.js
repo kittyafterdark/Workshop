@@ -509,7 +509,7 @@ var AGENT_CSS = `
 .workshop-agent h2 {font-size:15px;margin:0}.workshop-agent p {font-size:12px;color:var(--lumiverse-text-muted);margin:0;line-height:1.5}
 .workshop-agent .workshop-agent-block-name {font-size:14px;font-weight:650;color:var(--lumiverse-text);overflow-wrap:anywhere;padding-bottom:12px;border-bottom:1px solid var(--lumiverse-border)}
 .workshop-agent label {display:flex;flex-direction:column;gap:7px;font-size:12px;font-weight:600;min-width:0}
-.workshop-agent select,.workshop-agent textarea {box-sizing:border-box;width:100%;border:1px solid var(--lumiverse-border);border-radius:10px;background:var(--lumiverse-bg);color:var(--lumiverse-text);padding:11px;font:inherit}
+.workshop-agent select,.workshop-agent input,.workshop-agent textarea {box-sizing:border-box;width:100%;border:1px solid var(--lumiverse-border);border-radius:10px;background:var(--lumiverse-bg);color:var(--lumiverse-text);padding:11px;font:inherit}
 .workshop-agent textarea {line-height:1.6}.workshop-agent [data-agent="content"] {font-family:var(--lumiverse-font-mono,monospace);font-size:12px;min-height:180px;flex:1;resize:none;padding:16px;border-radius:12px}
 .workshop-agent .workshop-agent-content {flex:1;min-height:180px}
 .workshop-agent-settings>div {display:flex;flex-direction:column;gap:7px;min-width:0}
@@ -563,6 +563,7 @@ class AgentWorkspace {
   timer = null;
   configId = crypto.randomUUID();
   disposed = false;
+  connections = [];
   selectedId = null;
   navigationOpen = false;
   navigationHome;
@@ -574,7 +575,7 @@ class AgentWorkspace {
     this.element.className = "workshop-agent";
     this.element.setAttribute("aria-label", "Agent workspace");
     const fieldId = crypto.randomUUID();
-    this.element.innerHTML = `<div class="workshop-agent-columns"><div class="workshop-agent-prompt"><section class="workshop-agent-editor" aria-label="Draft prompt editor"><div class="workshop-agent-editor-heading"><button class="workshop-text-button workshop-agent-nav-toggle" type="button" data-agent="prompts" aria-controls="${fieldId}-prompts" aria-expanded="false" aria-label="Open agent prompts">${AGENT_ICONS.sidebar}</button><h2>Prompt draft</h2></div><p>All edits stay local until Apply.</p><p class="workshop-agent-block-name" data-agent="block-name"></p><label class="workshop-agent-content">Draft content<textarea data-agent="content" spellcheck="false"></textarea></label><details><summary>Inspect mounted context</summary><p>Includes current values, preview mocks, diagnostics, settings and regex metadata. Only this mounted preset is available to the agent.</p><pre data-agent="context"></pre></details></section></div><section class="workshop-agent-chat" aria-label="Preset assistant"><div class="workshop-agent-settings"><div><label for="${fieldId}-connection">Lumi connection</label><select id="${fieldId}-connection" data-agent="connection"><option value="">Loading connections…</option></select></div><div><label for="${fieldId}-server">PresetTools compatibility</label><select id="${fieldId}-server" data-agent="server"><option value="">Built-in tools · no MCP required</option></select></div><p>Built-in tools work without MCP. Optional compatibility uses the same local draft.</p></div><div class="workshop-agent-log" data-agent="log" aria-label="Conversation"></div><div class="workshop-agent-chat-footer"><details><summary>Tool activity</summary><pre data-agent="activity"></pre></details><div class="workshop-agent-status" data-agent="status" role="status"></div><form class="workshop-agent-composer"><label class="workshop-agent-sr-only" for="${fieldId}-instruction">Ask the preset assistant</label><textarea id="${fieldId}-instruction" data-agent="instruction" rows="2" placeholder="Review diagnostics, or describe an edit…" required maxlength="30000"></textarea><button class="workshop-agent-send" type="submit" data-agent="send" aria-label="Send" title="Send" disabled>${AGENT_ICONS.send}</button></form></div></section></div>`;
+    this.element.innerHTML = `<div class="workshop-agent-columns"><div class="workshop-agent-prompt"><section class="workshop-agent-editor" aria-label="Draft prompt editor"><div class="workshop-agent-editor-heading"><button class="workshop-text-button workshop-agent-nav-toggle" type="button" data-agent="prompts" aria-controls="${fieldId}-prompts" aria-expanded="false" aria-label="Open agent prompts">${AGENT_ICONS.sidebar}</button><h2>Prompt draft</h2></div><p>All edits stay local until Apply.</p><p class="workshop-agent-block-name" data-agent="block-name"></p><label class="workshop-agent-content">Draft content<textarea data-agent="content" spellcheck="false"></textarea></label><details><summary>Inspect mounted context</summary><p>Includes current values, preview mocks, diagnostics, settings and regex metadata. Only this mounted preset is available to the agent.</p><pre data-agent="context"></pre></details></section></div><section class="workshop-agent-chat" aria-label="Preset assistant"><div class="workshop-agent-settings"><div><label for="${fieldId}-connection">Lumi connection</label><select id="${fieldId}-connection" data-agent="connection"><option value="">Loading connections…</option></select></div><div><label for="${fieldId}-model">Model</label><input id="${fieldId}-model" data-agent="model" list="${fieldId}-models" placeholder="Connection default" maxlength="500" autocomplete="off"><datalist id="${fieldId}-models" data-agent="models"></datalist></div><p>Use the connection default, or enter a model ID. Edits stay local until Apply.</p></div><div class="workshop-agent-log" data-agent="log" aria-label="Conversation"></div><div class="workshop-agent-chat-footer"><details><summary>Tool activity</summary><label for="${fieldId}-server">PresetTools compatibility</label><select id="${fieldId}-server" data-agent="server"><option value="">Built-in tools</option></select><pre data-agent="activity"></pre></details><div class="workshop-agent-status" data-agent="status" role="status"></div><form class="workshop-agent-composer"><label class="workshop-agent-sr-only" for="${fieldId}-instruction">Ask the preset assistant</label><textarea id="${fieldId}-instruction" data-agent="instruction" rows="2" placeholder="Review diagnostics, or describe an edit…" required maxlength="30000"></textarea><button class="workshop-agent-send" type="submit" data-agent="send" aria-label="Send" title="Send" disabled>${AGENT_ICONS.send}</button></form></div></section></div>`;
     const navigation = options.navigation;
     this.navigationHome = { parent: navigation.parentNode, next: navigation.nextSibling, id: navigation.id, label: navigation.getAttribute("aria-label"), hidden: navigation.hidden, buttonLabel: navigation.querySelector('[data-action="left"]').getAttribute("aria-label") };
     navigation.id = `${fieldId}-prompts`;
@@ -592,7 +593,10 @@ class AgentWorkspace {
       }
     });
     this.unsubscribe = ctx.onBackendMessage((payload) => this.receive(payload));
-    this.select("connection").addEventListener("change", () => this.updateControls());
+    this.select("connection").addEventListener("change", () => {
+      this.resetModel();
+      this.updateControls();
+    });
     this.area("content").addEventListener("input", () => {
       try {
         const preset = options.snapshot(), baseline = presetFingerprint(preset);
@@ -628,6 +632,15 @@ class AgentWorkspace {
   select(name) {
     return this.element.querySelector(`[data-agent="${name}"]`);
   }
+  modelInput() {
+    return this.element.querySelector('[data-agent="model"]');
+  }
+  resetModel() {
+    const model = this.connections.find((c) => c.id === this.select("connection").value)?.model ?? "";
+    this.modelInput().value = "";
+    this.modelInput().placeholder = model ? `Connection default · ${model}` : "Enter a model ID";
+    this.element.querySelector('[data-agent="models"]').replaceChildren(...model ? [new Option(model, model)] : []);
+  }
   area(name) {
     return this.element.querySelector(`[data-agent="${name}"]`);
   }
@@ -645,6 +658,7 @@ class AgentWorkspace {
     send.title = this.busy ? "Stop" : "Send";
     send.innerHTML = this.busy ? AGENT_ICONS.stop : AGENT_ICONS.send;
     this.area("content").readOnly = this.busy || !!this.options.snapshot().blocks.find((b) => b.id === this.selectedId)?.isLocked;
+    this.modelInput().disabled = this.busy || !this.select("connection").value;
     this.select("connection").disabled = this.busy;
     this.select("server").disabled = this.busy;
   }
@@ -728,7 +742,7 @@ class AgentWorkspace {
       this.message("user", instruction);
       this.element.querySelector('[data-agent="activity"]').textContent = "";
       this.timer = setTimeout(() => this.cancel("Agent timed out. No generated changes were staged."), 125000);
-      this.ctx.sendToBackend({ type: "workshop:agent-run", requestId: this.request.id, connectionId: this.select("connection").value, serverId: this.select("server").value, instruction, history: this.history, preset, context: this.options.context() });
+      this.ctx.sendToBackend({ type: "workshop:agent-run", requestId: this.request.id, connectionId: this.select("connection").value, model: this.modelInput().value.trim(), serverId: this.select("server").value, instruction, history: this.history, preset, context: this.options.context() });
       this.area("instruction").value = "";
       this.resizeComposer();
     } catch (error) {
@@ -740,10 +754,12 @@ class AgentWorkspace {
       return;
     const p = payload;
     if (p.type === "workshop:agent-config" && p.requestId === this.configId) {
-      this.select("connection").replaceChildren(new Option("Choose a connection", ""), ...(p.connections ?? []).map((c) => new Option(`${c.name}${c.model ? ` · ${c.model}` : ""}`, c.id)));
+      this.connections = p.connections ?? [];
+      this.select("connection").replaceChildren(new Option("Choose a connection", ""), ...this.connections.map((c) => new Option(`${c.name}${c.model ? ` · ${c.model}` : ""}`, c.id)));
       if (p.connections?.length === 1)
         this.select("connection").value = p.connections[0].id;
-      this.select("server").replaceChildren(new Option("Built-in tools · no MCP required", ""), ...(p.servers ?? []).map((s) => new Option(s.name, s.id)));
+      this.resetModel();
+      this.select("server").replaceChildren(new Option("Built-in tools", ""), ...(p.servers ?? []).map((s) => new Option(s.name, s.id)));
       this.status(p.error ?? "Ready. Sending shares this preset context with the selected connection.");
       this.updateControls();
       return;
