@@ -36,7 +36,7 @@ Workshop needs a Lumiverse build with Spindle extensions and the controlled Loom
 4. Open a preset in **Loom**, then choose **Workshop** from the preset toolbar.
 5. Open a chat if you want to use the live assembly preview.
 
-The Reference preset preview is currently on the **staging** branch. Choose staging in the extension installer to test it; main remains the published stable release.
+Reference preset is available in the stable release on **main**.
 
 Built releases are pushed to **main**. Install updates from Lumi's **Extensions** tab.
 

@@ -2,7 +2,7 @@
 
 Release history for Workshop. These entries describe behavior at the time of each release; see the [README](README.md) for the current guide.
 
-## 0.10.0 reference preset (staging)
+## 0.10.0 reference preset
 
 - Reference shares the preview panel with Stack and Resolved: choose a second saved preset, browse collapsible sections, search and copy raw prompt text read-only.
 - Reuses panel docking/hide/resize controls, with more reading space on phones. Selection survives preview and agent view switches until Workshop closes.
