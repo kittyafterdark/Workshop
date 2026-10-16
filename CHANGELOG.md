@@ -1,0 +1,160 @@
+# Changelog
+
+Release history for Workshop. These entries describe behavior at the time of each release; see the [README](README.md) for the current guide.
+
+## 0.8.0 automatic backups and assistant polish
+
+- **Preset backups → Settings** configures each user's preset independently: opt-in timed backups, a 1–1440 minute interval, and how many files to keep (0 means unlimited). Settings persist in public per-user extension storage across restarts. Timers run only while Workshop is open, include unsynced manual/agent drafts, skip unchanged snapshots, and stop on close/unload. They do not Apply or save the live preset.
+- The count limit includes manual, timed and pre-Apply snapshots, including earlier name folders for the same preset. Saving a lower limit prunes the oldest existing files immediately. New snapshots are written before count pruning; seven-day transient-storage expiry still applies. A failed automatic backup marks the launcher and appears in the backup panel; storage failure retains the current local work.
+- Model suggestions now load the selected connection's catalogue through Lumi's authenticated `/api/v1/connections/:id/models` endpoint, with a **Refresh models** control. Provider credentials stay on Lumi. Default/manual model entry remains available if the catalogue cannot load or the deployment uses a different API base.
+- **Retry last request** resends a failed instruction against the current local draft and selected connection/model without duplicating the user message or erasing the next typed message. Stopping retains local drafts and does not offer an automatic retry.
+- Collapsible **Thinking** displays reasoning returned by the provider after each generation call. It is not streamed token by token: the current host streaming contract omits native reasoning metadata used by some tool continuations.
+- Assistant replies render sanitized Markdown, including headings, lists, tables and code. Tool activity has a padded, collapsible card with a bounded scroll area.
+
+## 0.7.2 agent model selection
+
+- Fixes raw generation requests omitting the model: each run reads the current selected Lumi connection and explicitly sends its model through every tool round.
+- The assistant's second field is now an editable **Model** picker. Leave it empty to use the connection default, choose its suggested model, or enter a model ID override. Changing connection clears the override. This does not modify the saved Lumi connection; the public extension API does not expose a chat-model catalogue.
+- Optional PresetTools compatibility remains under **Tool activity**. Built-in tools still require no MCP server.
+- Missing connections or missing models fail before generation and preserve local drafts.
+
+## 0.7.1 agent workspace polish
+
+- Floating assistant composer with one right-hand SVG action: Send becomes Stop during generation. Enter sends, Shift+Enter adds a line, and the input grows with its content.
+- Agent mode reuses Workshop's searchable prompt/category sidebar, with collapse/reopen controls and a compact overlay on smaller screens. Category expansion survives leaving and reopening agent mode.
+- Separates prompt navigation, local editing, assistant settings and conversation. Draft staging and final Apply confirmations are unchanged.
+
+## 0.7.0 agent workspace
+
+- Enter **Agent** from the Workshop header. The local prompt editor works without MCP or a model connection; select a Lumi connection to send instructions to the assistant. The existing assembly preview follows the staged blocks and preview mocks.
+- All manual and generated edits remain local. **Apply drafts** requires confirmation, creates the existing pre-Apply backup, and applies the batch atomically. Leaving agent mode (including Workshop's close button) asks whether to keep drafts in Workshop, discard all unsynced edits, or stay. Kept agent drafts still require Apply confirmation outside agent mode. Closing Workshop after leaving discards its session drafts as before.
+- Reads include the entire mounted public preset, block/category structure, variable definitions and current values, references/diagnostics, settings/regex metadata, preview mocks/results, and local changes. Actual live variable selections remain under Lumi's control. Settings, regex metadata, variable definitions and mocks are read-only in the agent tool surface in this release.
+- Draft tools edit prompt content, names, role/depth, enabled state and order, and insert/delete prompts. Locked prompts, ambiguous identities and category edits are refused. Generated runs are staged only after completion and only if the local draft and host preset still match their original snapshots. Stop, timeout, provider failure and the bounded tool loop retain prior drafts without staging partial generated edits.
+- Built-in inline tools work without an MCP server. Optional **PresetTools compatibility** discovers an existing enabled Lumi MCP server and reports supported names. Supported file-tool names are implemented against `workshop://draft` with Workshop's schemas; no remote file tool is executed. Full replacement content is supported; unified diffs, arbitrary filesystem paths, unsupported arguments and save/Apply tools are rejected. This is a bounded compatibility subset, not a general MCP agent.
+- Uses public generation/connection/MCP APIs; `mcp_servers` is newly declared for optional discovery. Connection inventory exposes names/models/IDs, without credentials. Sending context uses the selected Lumi connection. Conversations and agent runs last only for the current agent workspace session.
+
+## 0.6.0 preset backups
+
+- Open Preset backups from the archive icon in the Workshop header. Create backup captures your current local work; every Apply first saves the previous host preset. Storage failure prevents Apply and retains local edits.
+- Uses the public `spindle.ephemeral` API with `ephemeral_storage` permission. Paths are `storage/<safe-preset-name>/backups/YYYY-MM-DD HH-mm-ss.SSS UTC--<unique-id>.json`. Each snapshot has a seven-day TTL. Cleanup runs at extension startup, hourly while loaded, and on backup operations; overdue files are removed when the extension resumes. No browser storage. A configurable per-preset count cap was added in 0.8.0.
+- Backups include the public preset draft: name, blocks (including variable definitions), parameters, prompts, and metadata. Live variable selections stay under Lumi’s control, and preview mocks are excluded. Backups remain discoverable after a preset rename and are filtered by preset identity and requesting user.
+- Restore locally stages the entire public preset and saves a recovery snapshot of your existing local work first. Inspect or edit its prompts, then Apply restore. Discard drafts cancels it. A host change after staging refuses the entire restore.
+
+## 0.5.1 reviewer polish
+
+- Issue cards separate the current diagnostic, prompt name, and resolution status.
+- SVG controls and labeled navigation/draft groups make the review workflow clearer; Apply is the primary action.
+- Mobile controls stack into separate groups, and closing review returns keyboard focus to its launcher.
+
+## 0.5.0 unsynced editing
+
+- The variable rail starts in sections view so All variables and Diagnostics are both visible.
+- Normal Loom Save now retains a prompt locally. Navigation retains valid in-progress drafts, including both editors when a secondary prompt is promoted. Dry run and Diagnostics use the local graph.
+- Ordinary edits and issue review share one draft batch. Apply (count) writes it together; the count is distinct changed prompts. External changes to a touched prompt block the batch. Discard drafts returns to the latest host preset, and closing Workshop warns before losing local edits.
+- Drafts are temporary and scoped to the open Workshop session.
+
+## 0.4.0 issue review
+
+- Review issues beside Diagnostics opens the native Loom prompt editor with Previous/Next stops for unknown variables, duplicate definitions, unused-variable warnings, and ambiguous block IDs.
+- Save and navigation keep valid edits local; Close retains fixes for reopening within the Workshop session. Recheck rebuilds the queue from those fixes.
+- Apply writes the reviewed prompts together, preserving unrelated fresh host changes and refusing the entire batch if a touched prompt changed elsewhere. Discard fixes restarts from the latest preset.
+
+## 0.3.9 stacked mock rows
+
+- Variable names and Mock indicators share a header with the reserved reset button; values use the full row beneath.
+- Slider numbers sit beside their tracks, with stable space for changing values.
+
+## 0.3.8 mock control polish
+
+- Boolean mock values use themed switches with keyboard focus and On/Off labels.
+- Revert controls reserve their own slot so mock edits and resets keep values in place.
+
+## 0.3.7 grouped mock form
+
+- Workshop opens the variable rail in a compact mock form: collapsible sections follow owning prompt order, with title + typed value controls and per-value reset actions.
+- Edit multiple mock values directly without opening individual detail cards. Section expansion and mock values survive navigation and host refreshes within the Workshop session.
+- Search expands matching sections temporarily; clearing it restores the chosen section state. Variable map remains available for topology, descriptions, and dependency navigation; clicking a form title opens its detail view.
+- The form and map share the same preview-only overrides. Neither changes saved values.
+
+## 0.3.6 opaque mobile rails
+
+- Mobile prompt and variable drawers composite the theme's rail tint over a solid base, preventing editor/preview content from showing through translucent themes.
+
+## 0.3.5 prompt-variable sandbox
+
+- Select a variable in Workshop's variable rail to edit a mock value using its declared text, textarea, number, slider, switch, select, or multiselect control. Text/numeric edits take effect when committed with Tab or by leaving the control.
+- Mock values affect assembly preview only. Native Loom editors and saved preset/profile values retain their real values.
+- Active overrides show a Mock marker; Reset mock restores one variable to its latest real value, and Reset mocks clears all overrides. Closing Workshop clears the sandbox.
+- Removed/changed definitions and ambiguous definition/block identities clear stale overrides. Mocking ambiguous variables is disabled.
+
+## 0.3.4 persistent Loom launcher mount
+
+- Replaces the registered preset-toolbar-item launcher bridge with Loom's canonical `ctx.ui.mount('preset_editor_toolbar')` host mount point. Spindle's mount service owns a persistent `MutationObserver` and automatically reattaches the same Workshop root whenever Loom swaps list/edit branches, so the launcher no longer depends on extension-load vs. host-paint ordering.
+- Removes the old bounded `setVisible(false) -> requestAnimationFrame -> setVisible(true)` repair loop entirely. There is no launcher-specific polling/retry state left in Workshop.
+- Keeps the launcher full-width by sizing the mount root itself rather than mutating whichever transient React toolbar wrapper happened to exist at the time.
+
+## 0.3.3 prompt navigation polish
+
+- Makes `Stack` the default dry-run preview while keeping `Resolved` one click away.
+- Separates category disclosure from category editing: the small caret only expands/collapses that category, while clicking the category row opens the category block in the native Loom editor.
+- Replaces separate Expand All / Collapse All prompt controls with one next-action button. If any category is open it offers Collapse All; once everything is collapsed it flips to Expand All.
+- Keeps the 0.3.2 unsaved-draft navigation guard on category-row navigation and split-pane actions.
+
+## 0.3.2 unsaved-draft navigation guard
+
+- Prompts with native Loom edits that have not been saved now block prompt navigation behind a warning confirmation instead of silently discarding the draft. Cancel keeps the current prompt and its transient editor state intact; `Discard changes` performs the requested navigation.
+- The same guard covers prompt-rail navigation, variable/dependency jumps, category edit jumps, native Back actions, replacing/closing the secondary split prompt, and promoting the current secondary prompt into the primary lane.
+- Navigation only warns for the editor lane(s) that would actually lose a draft. A clean lane or an unrelated dirty split pane does not produce a false confirmation.
+
+## 0.3.1 desktop safe-area fullscreen
+
+- Keeps Workshop edge-to-edge inside Lumiverse's **interactive** application viewport rather than blindly occupying raw `y = 0`. The fullscreen modal now honors Lumiverse's `--app-interactive-safe-top` and `--app-interactive-viewport-height` host contract, so the Tauri HTML titlebar remains visible instead of covering Workshop's compact header.
+- Uses host CSS variables rather than a hard-coded desktop offset, so browser/PWA behavior stays fullscreen while Tauri, window-controls-overlay PWAs, safe-area devices, UI scaling, and future titlebar height changes remain host-owned.
+- Removes the host modal backdrop padding while Workshop owns the fullscreen surface, preserving the true edge-to-edge application workspace below the reserved chrome.
+
+## 0.3.0 fullscreen + topology pass
+
+- Promotes Workshop's extension-owned host modal to true fullscreen and hides the redundant host modal header. Workshop now uses one compact 40px topbar: `Workshop | preset name | sync state + close`.
+- Adds dry-run search across resolved messages and stack entries plus a content-collapse toggle, while keeping the existing whole-preview Hide/Show and draggable bottom/side sizing.
+- Rebuilds the variable rail as two equal panes (`All variables`, `Diagnostics`) or three equal panes when a variable is selected (selected detail + all + diagnostics). Each pane starts bounded and can temporarily take the whole rail through `Show more`.
+- Makes variable cards easier to scan with a stronger label → reference count → macro → owner hierarchy instead of a compressed metadata line.
+- Fixes false `REFERENCED BY · 0×` results for variables nested inside other Loom macros. Workshop now scans direct `{{var::...}}` openers independently instead of pairing the first outer `{{` with an inner variable's closing braces.
+- Adds explicit Expand All / Collapse All controls for Loom prompt categories.
+- Keeps ephemeral prompt-variable *value* overrides out of this pass intentionally; that remains a separate preview-state feature so temporary values cannot accidentally become persisted configuration.
+
+## 0.2.5 selection scroll stability
+
+- Preserves the prompt rail's own scroll position while Workshop rebuilds prompt rows after selection, category changes, draft updates, or variable highlighting. This prevents long presets from snapping back to the top when a prompt is opened.
+- Preserves the variable rail scroll position across its corresponding rerenders.
+- Captures scrollable host-modal ancestors around primary/secondary prompt selection and restores them immediately plus across the next two animation frames, covering focus/layout effects from the native controlled Loom editor without forcing the newly selected prompt editor to inherit the previous prompt's internal scroll position.
+
+## 0.2.4 race + sidecar geometry repair
+
+- Repairs the preset-toolbar deferred mount race without touching Lumiverse core: if the registered Workshop root misses the host's first paint task, Workshop performs a bounded visibility remount while Loom is open instead of waiting for an edit/back remount.
+- Replaces the variable sidecar's sentinel `grid-row: 1 / span 99` with the exact number of native main-form rows. The old sentinel manufactured dozens of empty grid tracks (and their row gaps), which made the native prompt editor scroll deep into blank space even after the variable rail itself was height-bounded.
+- Keeps the variable rail independently scrollable and modal-height-aware; only the fake extra native scroll distance is removed.
+
+## 0.2.3 independent pane scrolling
+
+- Bounds the single-prompt native variable sidecar to the actual Loom editor viewport instead of letting large variable collections determine the whole form height.
+- Gives the variable sidecar its own vertical scroll while the native Loom scroll container continues to own prompt-form scrolling.
+- Recomputes the sidecar height when the editor lane resizes, including Workshop preview resizing and modal viewport changes.
+- Restores ordinary stacked/flowing variable behavior below the desktop sidecar breakpoint.
+
+## 0.2.2 fit-and-width pass
+
+- Keeps the collapsed dry-run toolbar fully inside the host modal body instead of letting it fall below the modal viewport.
+- Removes Loom's native 800px form cap inside Workshop so single-prompt editing can use the wider Workshop canvas; the variable sidecar inherits the same wider surface.
+
+## 0.2.1 workspace pass
+
+- Keeps the Workshop launcher visible across Loom list/edit remounts and stretches the current preset-toolbar host to a full-width launcher row.
+- Gives the prompt and variable rails their own collapse/reopen controls.
+- Mirrors Loom category grouping, including category collapse/search behavior. Only category headers get the explicit pencil action; ordinary prompt rows open directly.
+- Supports two native Loom prompts side-by-side. Each lane keeps an independent transient draft and commits only its selected block against the latest host draft.
+- In single-prompt desktop mode, prompts with variable definitions use the existing native VariablesEditor as a sidecar beside the prompt form. No React-owned nodes are reparented; Workshop only adds layout classes. Opening a second prompt restores the ordinary native below-prompt variable layout.
+- Widens the native edit surface and gives the primary prompt textarea substantially more vertical room.
+- Makes the dry-run preview resizable: drag height in bottom mode or width in side mode. Hiding a side preview returns it to the bottom toolbar and cancels preview work until shown again.
+- Keeps the native expanded text editor available through Loom's existing Expand action. Workshop does not clone or DOM-reparent that React-owned editor because Spindle 0.6.31 does not expose it as a separately mountable host component.
+
+- Hard-bounds category chevron SVGs to 13px so browser intrinsic SVG sizing cannot overflow the prompt rail.
