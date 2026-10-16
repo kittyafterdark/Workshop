@@ -18,6 +18,12 @@ try {
     let catalogue = ['Fixture model', 'Alternate model']
     let catalogueFailure = false
     await page.route('**/api/v1/connections/*/models', route => route.fulfill({ json: catalogueFailure ? { error: 'Offline', models: [] } : { models: catalogue } }))
+    let macroFailure = false, macroHold = null, releaseMacros, macroRequests = 0
+    await page.route('**/api/v1/macros', async route => {
+      macroRequests++
+      if (macroHold) await macroHold
+      await route.fulfill({ status: macroFailure ? 503 : 200, json: { categories: [{ category: 'Variables', macros: [{ name: 'setvar', syntax: '{{setvar::key::value}}', description: 'Set a local variable', args: [{ name: 'key', optional: false }, { name: 'value', optional: false }] }] }] } })
+    })
     const errors = []
     page.on('pageerror', e => errors.push(e.message))
     await page.goto(`http://127.0.0.1:${server.address().port}`)
@@ -332,6 +338,30 @@ try {
     await large.getByRole('button', { name: /Show remaining .* diff lines for Grouped addition/ }).press('Enter')
     assert.equal(await largeTable.locator('tbody tr').count(), 603)
     assert.equal(await largeTable.evaluate(el => el === document.activeElement), true)
+    assert.equal(await page.evaluate(() => window.writes), 1)
+    // Documentation crosses the real frontend/backend tool path without evaluating templates.
+    await page.evaluate(() => { window.agentToolCalls = [{ name: 'workshop_macro_reference', args: { query: 'setvar' }, call_id: 'macro-docs' }] })
+    await instruction.fill('Explain local variable syntax')
+    await workspace.getByRole('button', { name: 'Send', exact: true }).click()
+    await workspace.getByRole('status').filter({ hasText: 'Finished. No prompt changes in this run.' }).waitFor()
+    const docs = await page.evaluate(() => JSON.parse(window.agentToolResults[0].content))
+    assert.equal(docs.entries[0].syntax, '{{setvar::key::value}}')
+    assert.match(docs.source, /Lumi GET/)
+    macroFailure = true
+    await instruction.fill('Read docs while host catalogue is offline')
+    await workspace.getByRole('button', { name: 'Send', exact: true }).click()
+    await workspace.getByRole('status').filter({ hasText: 'Finished. No prompt changes in this run.' }).waitFor()
+    assert.match(await page.evaluate(() => JSON.parse(window.agentToolResults[0].content).source), /unavailable/)
+    macroFailure = false
+    macroHold = new Promise(resolve => { releaseMacros = resolve })
+    const beforeRequests = macroRequests, beforeGeneration = await page.evaluate(() => window.agentRequests)
+    await instruction.fill('Cancel while macro docs load')
+    await workspace.getByRole('button', { name: 'Send', exact: true }).click()
+    while (macroRequests === beforeRequests) await new Promise(resolve => setTimeout(resolve, 10))
+    await workspace.getByRole('button', { name: 'Stop', exact: true }).click()
+    releaseMacros(); macroHold = null
+    await page.waitForTimeout(150)
+    assert.equal(await page.evaluate(() => window.agentRequests), beforeGeneration)
     assert.equal(await page.evaluate(() => window.writes), 1)
     assert.deepEqual(errors, [])
     console.log(`PASS agent workspace: manual/AI drafts, confirmation, keep/discard, MCP compatibility, cancel, host conflict and safe-area layout: ${width}px`)

@@ -2,6 +2,12 @@
 
 Release history for Workshop. These entries describe behavior at the time of each release; see the [README](README.md) for the current guide.
 
+## 0.9.1 macro reference for the preset assistant
+
+- The assistant receives variable-scope guidance and a searchable, paginated `workshop_macro_reference` tool backed by Lumi's registered macro catalogue, refreshed per request.
+- Documentation distinguishes preset input definitions from local runtime, persisted chat and global variables. Lookup does not resolve templates or execute setters.
+- Missing/offline catalogues fall back to an explicit limited variable guide; stopping or leaving during documentation loading prevents a late model request.
+
 ## 0.9.0 grouped insertion and agent change review
 
 - Insert/move tools accept an existing category by exact name, inherit an adjacent prompt's category by default, and can explicitly target ungrouped placement. Conflicting placement, ambiguous targets and locked categories are refused; unrelated prompts retain their membership.

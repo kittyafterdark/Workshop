@@ -1,6 +1,8 @@
 import type { PromptBlockDTO, PromptVariableValuesDTO, SpindlePresetEditorDraft, ToolSchemaDTO } from 'lumiverse-spindle-types'
 import { buildReviewIssues, buildVariableIndex, computePromptGroups } from './workshop-core.js'
 
+import { macroCatalogue, readMacroReference, type MacroDoc } from './agent-macros.js'
+
 export const DRAFT_PATH = 'workshop://draft'
 export interface AgentContext {
   values: PromptVariableValuesDTO
@@ -12,6 +14,7 @@ const schema = (name: string, description: string, properties: Record<string, un
 const str = { type: 'string' }
 export const AGENT_TOOLS: ToolSchemaDTO[] = [
   schema('workshop_snapshot', 'Read the full mounted draft, settings, regex metadata, current selections, preview-only mocks, preview and local changes.'),
+  schema('workshop_macro_reference', 'Read Lumi macro documentation and variable scope guidance without evaluating macros. Search names, syntax, descriptions or categories; omit query to browse. Returns 20 results per page; use nextOffset.', { query: str, offset: { type: 'integer', minimum: 0 } }),
   schema('preset_audit', 'Read variable definitions, references and diagnostics in the current draft.'),
   schema('preset_list_blocks', 'List blocks in order, including categories, role, depth, enabled and locked state.'),
   schema('preset_show_block', 'Read one uniquely named block in full.', { name: str }, ['name']),
@@ -30,7 +33,8 @@ export const COMPATIBLE_TOOLS = new Set(AGENT_TOOLS.map(t => t.name).filter(name
 /** A detached workspace. There is deliberately no persistence or host API here. */
 export class AgentDraft {
   private value: SpindlePresetEditorDraft
-  constructor(preset: SpindlePresetEditorDraft, private readonly context: AgentContext) { this.value = structuredClone(preset) }
+  private readonly macros: MacroDoc[] | null
+  constructor(preset: SpindlePresetEditorDraft, private readonly context: AgentContext, catalogue?: unknown) { this.value = structuredClone(preset); this.macros = macroCatalogue(catalogue) }
   snapshot(): SpindlePresetEditorDraft { return structuredClone(this.value) }
   execute(name: string, args: Record<string, unknown>): unknown {
     const definition = AGENT_TOOLS.find(t => t.name === name)
@@ -52,6 +56,7 @@ export class AgentDraft {
       return matches[0]
     }
     if (name === 'workshop_snapshot') return { path: DRAFT_PATH, preset: this.snapshot(), ...structuredClone(this.context) }
+    if (name === 'workshop_macro_reference') return readMacroReference(this.macros, text('query'), args.offset as number | undefined)
     if (name === 'preset_audit') return { diagnostics: buildReviewIssues(this.value.blocks, this.context.values), variables: buildVariableIndex(this.value.blocks, this.context.values) }
     if (name === 'preset_list_blocks') return this.value.blocks.map(({ content, ...block }, index) => ({ ...block, index, characters: content.length }))
     if (name === 'preset_show_block') return structuredClone(find(text('name')))

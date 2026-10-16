@@ -4428,6 +4428,57 @@ function renderAgentChanges(changes, primaryId, open) {
   return card;
 }
 
+// src/agent-macros.ts
+function macroCatalogue(input) {
+  if (!input || typeof input !== "object" || !Array.isArray(input.categories))
+    return null;
+  const entries = [];
+  const bounded = (value, max) => typeof value === "string" && value.length <= max;
+  const categories = input.categories;
+  if (categories.length > 200)
+    return null;
+  for (const group of categories) {
+    if (!group || typeof group !== "object")
+      return null;
+    const { category, macros } = group;
+    if (!bounded(category, 200) || !Array.isArray(macros) || macros.length > 2000)
+      return null;
+    for (const item of macros) {
+      if (!item || typeof item !== "object")
+        return null;
+      const m = item;
+      if (!bounded(m.name, 200) || !m.name || !bounded(m.syntax, 4000) || !bounded(m.description, 12000))
+        return null;
+      if (m.args !== undefined && (!Array.isArray(m.args) || m.args.length > 50))
+        return null;
+      const args = [];
+      for (const arg of m.args ?? []) {
+        if (!arg || typeof arg !== "object")
+          return null;
+        const a = arg;
+        if (!bounded(a.name, 200) || typeof a.optional !== "boolean")
+          return null;
+        args.push({ name: a.name, optional: a.optional });
+      }
+      entries.push({ name: m.name, syntax: m.syntax, description: m.description, category, args, ...bounded(m.returns, 1000) ? { returns: m.returns } : {} });
+      if (entries.length > 2000)
+        return null;
+    }
+  }
+  return entries;
+}
+async function loadMacroCatalogue() {
+  try {
+    const response = await fetch("/api/v1/macros", { credentials: "same-origin", headers: { Accept: "application/json" }, signal: AbortSignal.timeout(5000) });
+    if (!response.ok)
+      return;
+    const input = await response.json();
+    return macroCatalogue(input) === null ? undefined : input;
+  } catch {
+    return;
+  }
+}
+
 // src/agent-workspace.ts
 function confirmAgentApply(parent) {
   if (parent.querySelector(".workshop-agent-apply"))
@@ -4844,10 +4895,20 @@ class AgentWorkspace {
       this.element.querySelector('[data-agent="log"]').append(thinking);
       this.element.querySelector('[data-agent="activity"]').textContent = "";
       this.timer = setTimeout(() => this.cancel("Agent timed out. No generated changes were staged.", true), 125000);
-      this.ctx.sendToBackend({ type: "workshop:agent-run", requestId: this.request.id, connectionId: this.select("connection").value, model: this.modelInput().value.trim(), serverId: this.select("server").value, instruction, history: this.history, preset, context: this.options.context() });
+      this.dispatch({ type: "workshop:agent-run", requestId: this.request.id, connectionId: this.select("connection").value, model: this.modelInput().value.trim(), serverId: this.select("server").value, instruction, history: this.history, preset, context: this.options.context() });
       if (!retryInstruction)
         this.area("instruction").value = "";
       this.resizeComposer();
+    } catch (error) {
+      this.cancel(error instanceof Error ? error.message : "Could not start agent.");
+    }
+  }
+  async dispatch(payload) {
+    const macroCatalogue = await loadMacroCatalogue();
+    if (this.disposed || this.request?.id !== payload.requestId)
+      return;
+    try {
+      this.ctx.sendToBackend({ ...payload, macroCatalogue });
     } catch (error) {
       this.cancel(error instanceof Error ? error.message : "Could not start agent.");
     }

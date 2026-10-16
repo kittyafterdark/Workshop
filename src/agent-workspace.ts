@@ -3,7 +3,8 @@ import { agentBlockChanges } from './agent-changes.js'
 import { renderAgentChanges } from './agent-change-view.js'
 import type { PromptBlockDTO, SpindleFrontendContext, SpindlePresetEditorDraft } from 'lumiverse-spindle-types'
 import type { AgentContext } from './agent-core.js'
-import type { AgentResponse } from './agent-backend.js'
+import { loadMacroCatalogue } from './agent-macros.js'
+import type { AgentRequest, AgentResponse } from './agent-backend.js'
 import { presetFingerprint } from './backup-core.js'
 
 /** Native dialogs avoid consuming Lumi's last extension-modal slot. */
@@ -339,10 +340,17 @@ export class AgentWorkspace {
       this.element.querySelector('[data-agent="log"]')!.append(thinking)
       this.element.querySelector('[data-agent="activity"]')!.textContent = ''
       this.timer = setTimeout(() => this.cancel('Agent timed out. No generated changes were staged.', true), 125000)
-      this.ctx.sendToBackend({ type: 'workshop:agent-run', requestId: this.request.id, connectionId: this.select('connection').value, model: this.modelInput().value.trim(), serverId: this.select('server').value, instruction, history: this.history, preset, context: this.options.context() })
+      void this.dispatch({ type: 'workshop:agent-run', requestId: this.request.id, connectionId: this.select('connection').value, model: this.modelInput().value.trim(), serverId: this.select('server').value, instruction, history: this.history, preset, context: this.options.context() })
       if (!retryInstruction) this.area('instruction').value = ''
       this.resizeComposer()
     } catch (error) { this.cancel(error instanceof Error ? error.message : 'Could not start agent.') }
+  }
+  private async dispatch(payload: AgentRequest): Promise<void> {
+    const macroCatalogue = await loadMacroCatalogue()
+    // Closing/stopping or starting a newer run while documentation loads must not dispatch it.
+    if (this.disposed || this.request?.id !== payload.requestId) return
+    try { this.ctx.sendToBackend({ ...payload, macroCatalogue }) }
+    catch (error) { this.cancel(error instanceof Error ? error.message : 'Could not start agent.') }
   }
   private receive(payload: unknown): void {
     if (this.disposed || !payload || typeof payload !== 'object') return

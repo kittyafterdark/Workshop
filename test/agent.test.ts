@@ -167,3 +167,21 @@ test('cancelling a pending connection lookup never starts generation when the lo
   expect(calls).toBe(0)
   expect(output).toEqual([])
 })
+
+
+test('macro documentation reaches provider tool continuation and is guidance in every run', async () => {
+  const inputs: GenerationRequestDTO[] = []
+  const { coordinator, output, remoteCalls } = fixture(async input => {
+    inputs.push(structuredClone({ ...input, signal: undefined }))
+    return inputs.length === 1 ? { tool_calls: [{ name: 'workshop_macro_reference', args: { query: 'setvar' }, call_id: 'docs' }] } : { content: 'This edits local runtime macro text, not a preset input definition.' }
+  })
+  const source = request()
+  source.macroCatalogue = { categories: [{ category: 'Variables', macros: [{ name: 'setvar', syntax: '{{setvar::key::value}}', description: 'Set a local variable' }] }] }
+  await coordinator.handle(source, 'user')
+  expect(JSON.stringify(inputs[0].messages![0])).toContain('Use workshop_macro_reference before')
+  expect(inputs[0].tools?.some(tool => tool.name === 'workshop_macro_reference')).toBe(true)
+  expect(JSON.stringify(inputs[1].messages!.at(-1))).toContain('{{setvar::key::value}}')
+  expect(JSON.stringify(inputs[1].messages!.at(-1))).toContain('Lumi GET /api/v1/macros')
+  expect(output.at(-1)?.preset).toEqual(source.preset)
+  expect(remoteCalls).toEqual([])
+})
