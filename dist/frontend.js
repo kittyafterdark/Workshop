@@ -4193,6 +4193,241 @@ function renderAgentMarkdown(text) {
   return body;
 }
 
+// src/agent-changes.ts
+var stable = (value) => Array.isArray(value) ? value.map(stable) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, stable(v)])) : value;
+var same = (a, b) => JSON.stringify(stable(a)) === JSON.stringify(stable(b));
+var display = (value) => value === undefined || value === null ? "—" : typeof value === "string" ? value : JSON.stringify(stable(value));
+function reorderedIds(before, after) {
+  const old = new Map(before.map((b, i) => [b.id, i]));
+  const common = after.filter((b) => old.has(b.id));
+  const tails = [], parents = [];
+  common.forEach((block, i) => {
+    let lo = 0, hi = tails.length;
+    while (lo < hi) {
+      const mid = lo + hi >>> 1;
+      if (old.get(common[tails[mid]].id) < old.get(block.id))
+        lo = mid + 1;
+      else
+        hi = mid;
+    }
+    parents[i] = lo ? tails[lo - 1] : -1;
+    tails[lo] = i;
+  });
+  const kept = new Set;
+  for (let i = tails.at(-1) ?? -1;i >= 0; i = parents[i])
+    kept.add(common[i].id);
+  return new Set(common.filter((b) => !kept.has(b.id)).map((b) => b.id));
+}
+function agentBlockChanges(before, after) {
+  const unique = (blocks) => blocks.filter((b) => blocks.filter((other) => other.id === b.id).length === 1);
+  const oldBlocks = unique(before), newBlocks = unique(after);
+  const old = new Map(oldBlocks.map((b) => [b.id, b])), next = new Map(newBlocks.map((b) => [b.id, b]));
+  const moved = reorderedIds(oldBlocks, newBlocks);
+  const categories = (blocks) => new Map(computePromptGroups(blocks).flatMap((group) => group.children.map((b) => [b.id, group.categoryBlock?.name ?? "Ungrouped"])));
+  const oldCategories = categories(before), newCategories = categories(after);
+  const categoryLabel = (block, names) => !block ? "—" : `${names.get(block.id) ?? "—"}${block.group === undefined ? " (inherited)" : ""}`;
+  const labels = { name: "Name", role: "Role", depth: "Depth", enabled: "Enabled", position: "Injection position", isLocked: "Locked" };
+  const changes = [];
+  for (const id of [...newBlocks.map((b) => b.id), ...oldBlocks.filter((b) => !next.has(b.id)).map((b) => b.id)]) {
+    if (before.filter((b) => b.id === id).length > 1 || after.filter((b) => b.id === id).length > 1)
+      continue;
+    const a = old.get(id), b = next.get(id);
+    if (a && b && same(a, b) && !moved.has(id))
+      continue;
+    const fields = [];
+    for (const key of new Set([...Object.keys(a ?? {}), ...Object.keys(b ?? {})])) {
+      if (["id", "content", "group"].includes(key) || (!a || !b) && !["name", "role", "depth", "enabled", "position", "variables"].includes(key))
+        continue;
+      const av = a ? a[key] : undefined;
+      const bv = b ? b[key] : undefined;
+      if (!same(av, bv))
+        fields.push({ name: labels[key] ?? key, before: display(av), after: display(bv) });
+    }
+    if (!a || !b || !same(a.group, b.group) || oldCategories.get(id) !== newCategories.get(id))
+      fields.push({ name: "Category", before: categoryLabel(a, oldCategories), after: categoryLabel(b, newCategories) });
+    if (!a || !b || moved.has(id))
+      fields.push({ name: "Order", before: a ? `#${before.indexOf(a) + 1}` : "—", after: b ? `#${after.indexOf(b) + 1}` : "—" });
+    changes.push({
+      id,
+      name: b?.name ?? a.name,
+      kind: !a ? "added" : !b ? "removed" : !same(a, b) ? "edited" : "reordered",
+      before: a ? structuredClone(a) : null,
+      after: b ? structuredClone(b) : null,
+      fields
+    });
+  }
+  return changes;
+}
+function diffPromptLines(before, after) {
+  const a = before ? before.split(`
+`) : [], b = after ? after.split(`
+`) : [];
+  let prefix = 0, suffix = 0;
+  while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix])
+    prefix++;
+  while (suffix < a.length - prefix && suffix < b.length - prefix && a[a.length - suffix - 1] === b[b.length - suffix - 1])
+    suffix++;
+  const aa = a.slice(prefix, a.length - suffix), bb = b.slice(prefix, b.length - suffix);
+  const operations = a.slice(0, prefix).map((text) => ({ kind: "equal", text }));
+  if (aa.length * bb.length <= 250000) {
+    const width = bb.length + 1, grid = new Uint32Array((aa.length + 1) * width);
+    for (let i = aa.length - 1;i >= 0; i--)
+      for (let j = bb.length - 1;j >= 0; j--)
+        grid[i * width + j] = aa[i] === bb[j] ? 1 + grid[(i + 1) * width + j + 1] : Math.max(grid[(i + 1) * width + j], grid[i * width + j + 1]);
+    let i = 0, j = 0;
+    while (i < aa.length || j < bb.length) {
+      if (i < aa.length && j < bb.length && aa[i] === bb[j]) {
+        operations.push({ kind: "equal", text: aa[i++] });
+        j++;
+      } else if (i < aa.length && (j === bb.length || grid[(i + 1) * width + j] >= grid[i * width + j + 1]))
+        operations.push({ kind: "remove", text: aa[i++] });
+      else
+        operations.push({ kind: "add", text: bb[j++] });
+    }
+  } else {
+    for (const text of aa)
+      operations.push({ kind: "remove", text });
+    for (const text of bb)
+      operations.push({ kind: "add", text });
+  }
+  for (const text of a.slice(a.length - suffix))
+    operations.push({ kind: "equal", text });
+  let oldLine = 0, newLine = 0;
+  return operations.map((line) => ({ ...line, before: line.kind === "add" ? null : ++oldLine, after: line.kind === "remove" ? null : ++newLine }));
+}
+
+// src/agent-change-view.ts
+function contentDiff(change) {
+  const result = document.createElement("div");
+  const before = change.before?.content ?? "", after = change.after?.content ?? "";
+  if (before === after) {
+    result.textContent = "Prompt content unchanged.";
+    return result;
+  }
+  const lines = diffPromptLines(before, after);
+  const count = document.createElement("p");
+  count.textContent = `${lines.filter((line) => line.kind === "add").length} lines added · ${lines.filter((line) => line.kind === "remove").length} removed`;
+  const scroller = document.createElement("div"), table = document.createElement("table"), caption = document.createElement("caption"), head = document.createElement("thead"), body = document.createElement("tbody");
+  scroller.className = "workshop-agent-diff-scroll";
+  table.className = "workshop-agent-diff";
+  caption.textContent = `Content changes for ${change.name}`;
+  const header = document.createElement("tr");
+  for (const name of ["Before", "After", "Change", "Content"]) {
+    const cell = document.createElement("th");
+    cell.scope = "col";
+    cell.textContent = name;
+    header.append(cell);
+  }
+  head.append(header);
+  table.append(caption, head, body);
+  scroller.append(table);
+  const visible = [];
+  for (let i = 0;i < lines.length; ) {
+    if (lines[i].kind !== "equal") {
+      visible.push(lines[i++]);
+      continue;
+    }
+    let end = i;
+    while (end < lines.length && lines[end].kind === "equal")
+      end++;
+    if (end - i > 8) {
+      const left = i === 0 ? 0 : 3, right = end === lines.length ? 0 : 3;
+      visible.push(...lines.slice(i, i + left), end - i - left - right, ...lines.slice(end - right, end));
+    } else
+      visible.push(...lines.slice(i, end));
+    i = end;
+  }
+  let shown = 0;
+  const more = document.createElement("button");
+  more.type = "button";
+  more.className = "workshop-text-button";
+  const append = (all = false) => {
+    const end = all ? visible.length : Math.min(500, visible.length);
+    for (;shown < end; shown++) {
+      const line = visible[shown], row = document.createElement("tr");
+      if (typeof line === "number") {
+        const cell = document.createElement("td");
+        cell.colSpan = 4;
+        cell.textContent = `${line} unchanged lines`;
+        row.className = "diff-gap";
+        row.append(cell);
+      } else {
+        row.className = `diff-${line.kind}`;
+        for (const value of [line.before ?? "", line.after ?? "", line.kind === "add" ? "+" : line.kind === "remove" ? "−" : " ", line.text]) {
+          const cell = document.createElement("td");
+          cell.textContent = String(value);
+          row.append(cell);
+        }
+      }
+      body.append(row);
+    }
+    more.hidden = shown === visible.length;
+    more.textContent = `Show remaining ${visible.length - shown} diff lines for ${change.name}`;
+  };
+  append();
+  more.addEventListener("click", () => {
+    append(true);
+    table.focus();
+  });
+  table.tabIndex = -1;
+  result.append(count, scroller, more);
+  return result;
+}
+function renderAgentChanges(changes, primaryId, open) {
+  const card = document.createElement("section");
+  card.className = "workshop-agent-changes";
+  card.setAttribute("aria-label", "Draft changes");
+  const heading = document.createElement("h3");
+  heading.textContent = `Draft changes (${changes.length})`;
+  const copy = document.createElement("p");
+  copy.textContent = "Changes from this run. Review the draft before Apply.";
+  card.append(heading, copy);
+  for (const change of [...changes.filter((change) => change.id === primaryId), ...changes.filter((change) => change.id !== primaryId)]) {
+    const detail = document.createElement("details"), summary = document.createElement("summary"), fields = document.createElement("dl");
+    summary.textContent = `${change.kind[0].toUpperCase() + change.kind.slice(1)} · ${change.name}`;
+    for (const field of change.fields.filter((field) => !["Category", "Order"].includes(field.name))) {
+      const row = document.createElement("div"), key = document.createElement("dt"), value = document.createElement("dd");
+      key.textContent = field.name;
+      value.textContent = `${field.before} → ${field.after}`;
+      row.append(key, value);
+      fields.append(row);
+    }
+    detail.append(summary);
+    const placement = document.createElement("p");
+    placement.className = "workshop-agent-change-placement";
+    placement.textContent = change.fields.filter((field) => ["Category", "Order"].includes(field.name)).map((field) => `${field.name}: ${field.before} → ${field.after}`).join(" · ");
+    if (placement.textContent)
+      detail.append(placement);
+    if (fields.children.length) {
+      const settings = document.createElement("details"), settingsSummary = document.createElement("summary");
+      settings.className = "workshop-agent-change-settings";
+      settingsSummary.textContent = `Settings changes (${fields.children.length})`;
+      settings.append(settingsSummary, fields);
+      settings.open = change.before?.content === change.after?.content;
+      detail.append(settings);
+    }
+    if (change.after) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "workshop-text-button";
+      button.textContent = `Open prompt: ${change.name}`;
+      button.addEventListener("click", () => open(change.id));
+      detail.append(button);
+    }
+    let rendered = false;
+    detail.addEventListener("toggle", () => {
+      if (detail.open && !rendered) {
+        rendered = true;
+        detail.append(contentDiff(change));
+      }
+    });
+    card.append(detail);
+    if (change.id === primaryId && (change.before?.content.length ?? 0) + (change.after?.content.length ?? 0) < 20000)
+      detail.open = true;
+  }
+  return card;
+}
+
 // src/agent-workspace.ts
 function confirmAgentApply(parent) {
   if (parent.querySelector(".workshop-agent-apply"))
@@ -4283,6 +4518,26 @@ var AGENT_CSS = `
 .workshop-agent-message-body th,.workshop-agent-message-body td {border:1px solid var(--lumiverse-border);padding:7px 10px;text-align:left}
 .workshop-agent-message-body a {color:var(--lumiverse-primary,#a3a0e5)}
 .workshop-agent-message-body a:focus-visible {outline:2px solid currentColor;outline-offset:2px}
+.workshop-agent-changes {padding:14px;border:1px solid var(--lumiverse-primary,#a3a0e5);border-radius:12px;background:var(--lumiverse-bg);font-size:12px}
+.workshop-agent-changes h3 {font-size:14px;margin:0 0 7px}
+.workshop-agent-changes>details {margin-top:10px;border:1px solid var(--lumiverse-border);border-radius:8px;overflow:hidden}
+.workshop-agent-changes summary {cursor:pointer;padding:11px 12px;overflow-wrap:anywhere;font-weight:600}
+.workshop-agent-changes details>dl,.workshop-agent-changes details>button,.workshop-agent-changes details>div {margin:10px 12px}
+.workshop-agent-change-settings {margin:8px 12px;border:1px solid var(--lumiverse-border);border-radius:6px}
+.workshop-agent-changes .workshop-agent-change-settings summary {font-size:11px;font-weight:400;padding:8px 10px}
+.workshop-agent-changes .workshop-agent-change-placement {margin:8px 12px;font-size:11px;overflow-wrap:anywhere}
+.workshop-agent-changes dl {display:flex;flex-direction:column;gap:6px}
+.workshop-agent-changes dl>div {display:grid;grid-template-columns:85px minmax(0,1fr);gap:10px}
+.workshop-agent-changes dt {color:var(--lumiverse-text-muted)}.workshop-agent-changes dd {margin:0;overflow-wrap:anywhere}
+.workshop-agent-diff-scroll {overflow:auto;max-height:300px;margin-top:10px;overscroll-behavior:contain;border:1px solid var(--lumiverse-border);border-radius:6px}
+.workshop-agent-diff {border-collapse:collapse;min-width:100%;font:11px var(--lumiverse-font-mono,monospace);line-height:1.6}
+.workshop-agent-diff caption {text-align:left;padding:8px;font:11px sans-serif;color:var(--lumiverse-text-muted)}
+.workshop-agent-diff th {text-align:left;padding:5px 7px;border-bottom:1px solid var(--lumiverse-border);font:10px sans-serif}
+.workshop-agent-diff td {padding:1px 7px;vertical-align:top;white-space:pre}
+.workshop-agent-diff td:not(:last-child) {width:1%;color:var(--lumiverse-text-muted)}
+.workshop-agent-diff .diff-add {background:rgba(70,180,120,.13)}
+.workshop-agent-diff .diff-remove {background:rgba(220,80,105,.13)}
+.workshop-agent-diff .diff-gap {color:var(--lumiverse-text-muted);background:var(--lumiverse-fill-subtle,rgba(128,128,128,.08))}
 .workshop-agent-thinking {padding:12px 14px;border:1px solid var(--lumiverse-border);border-radius:10px;color:var(--lumiverse-text-muted)}
 .workshop-agent-thinking[hidden] {display:none}
 .workshop-agent details {font-size:12px}.workshop-agent pre {white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;font-size:11px}
@@ -4515,7 +4770,7 @@ class AgentWorkspace {
     if (!preset.blocks.some((b) => b.id === this.selectedId)) {
       this.selectedId = (preset.blocks.find((b) => b.marker !== "category") ?? preset.blocks[0])?.id ?? null;
       if (this.element.isConnected)
-        this.options.onSelection();
+        this.options.onSelection(this.selectedId);
     }
     this.renderContent();
     this.element.querySelector('[data-agent="context"]').textContent = JSON.stringify({ preset, ...this.options.context() }, null, 2);
@@ -4532,15 +4787,16 @@ class AgentWorkspace {
   get selectedBlockId() {
     return this.selectedId;
   }
-  selectBlock(id) {
+  selectBlock(id, reveal = false, focus = true) {
     if (id && !this.options.snapshot().blocks.some((b) => b.id === id))
       return;
     this.selectedId = id;
     this.renderContent();
-    this.options.onSelection();
+    this.options.onSelection(id, reveal);
     if (window.innerWidth <= 1100)
       this.setNavigation(false);
-    this.area("content").focus({ preventScroll: true });
+    if (focus)
+      this.area("content").focus({ preventScroll: true });
   }
   toggleNavigation() {
     this.setNavigation(!this.navigationOpen);
@@ -4572,7 +4828,7 @@ class AgentWorkspace {
       return;
     try {
       const preset = this.options.snapshot(), instruction = (retryInstruction ?? this.area("instruction").value).trim();
-      this.request = { id: crypto.randomUUID(), fingerprint: presetFingerprint(preset), instruction, history: [...this.history, { role: "user", content: instruction }] };
+      this.request = { id: crypto.randomUUID(), fingerprint: presetFingerprint(preset), instruction, before: structuredClone(preset.blocks), history: [...this.history, { role: "user", content: instruction }] };
       this.failedInstruction = null;
       this.busy = true;
       this.updateControls();
@@ -4639,11 +4895,28 @@ class AgentWorkspace {
     try {
       if (p.error)
         throw Error(p.error);
+      const changes = p.preset ? agentBlockChanges(request.before, p.preset.blocks) : [];
       if (p.preset && presetFingerprint(p.preset) !== request.fingerprint)
         this.options.stage(p.preset, request.fingerprint);
       this.history = [...request.history, { role: "assistant", content: p.content ?? "" }];
       this.message("assistant", p.content ?? "Finished.");
-      this.status("Finished. Review local drafts and preview before Apply.");
+      this.status(changes.length ? `Finished. ${changes.length} prompt${changes.length === 1 ? "" : "s"} changed locally. Review changes and preview before Apply.` : "Finished. No prompt changes in this run.");
+      if (changes.length) {
+        const primary = changes.find((change) => change.kind === "added") ?? changes.find((change) => change.after) ?? changes[0];
+        if (primary.after)
+          this.selectBlock(primary.id, true, false);
+        const card = renderAgentChanges(changes, primary.id, (id) => {
+          if (!this.options.snapshot().blocks.some((block) => block.id === id)) {
+            this.status("This prompt is no longer in the current draft.");
+            return;
+          }
+          this.selectBlock(id, true);
+          this.area("content").scrollIntoView({ block: "nearest" });
+        });
+        const log = this.element.querySelector('[data-agent="log"]');
+        log.append(card);
+        log.scrollTop += card.getBoundingClientRect().top - log.getBoundingClientRect().top - 12;
+      }
     } catch (error) {
       if (p.error)
         this.failedInstruction = request.instruction;
@@ -6275,7 +6548,26 @@ function createWorkshopSession(ctx, onClosed) {
       snapshot: currentBackupSnapshot,
       navigation: root.querySelector(".workshop-rail.left"),
       initialBlockId: selectedBlockId,
-      onSelection: renderPrompts,
+      onSelection: (id, reveal) => {
+        if (reveal && id) {
+          promptQuery = "";
+          promptSearch.value = "";
+          const category = computePromptGroups(effectiveValue().blocks).find((group) => group.children.some((block) => block.id === id))?.categoryBlock;
+          if (category)
+            collapsedCategories.delete(category.id);
+        }
+        renderPrompts();
+        if (reveal && id) {
+          const row = Array.from(promptList.querySelectorAll("[data-block-id]")).find((row) => row.dataset.blockId === id);
+          if (row && row.offsetParent !== null) {
+            const bounds = row.getBoundingClientRect(), viewport = promptList.getBoundingClientRect();
+            if (bounds.top < viewport.top)
+              promptList.scrollTop -= viewport.top - bounds.top;
+            else if (bounds.bottom > viewport.bottom)
+              promptList.scrollTop += bounds.bottom - viewport.bottom;
+          }
+        }
+      },
       context: () => ({ values: structuredClone(canonicalValue.promptVariableValues), mocks: variableSandbox.overlay(effectiveValue().blocks, canonicalValue.promptVariableValues), preview: structuredClone(previewResult), changes: [...issueReview.blockIds, ...pendingRestore ? ["Whole preset draft"] : []] }),
       stage: (preset, baseline) => {
         if (destroyed || applyingDrafts)

@@ -1,5 +1,5 @@
 import type { PromptBlockDTO, PromptVariableValuesDTO, SpindlePresetEditorDraft, ToolSchemaDTO } from 'lumiverse-spindle-types'
-import { buildReviewIssues, buildVariableIndex } from './workshop-core.js'
+import { buildReviewIssues, buildVariableIndex, computePromptGroups } from './workshop-core.js'
 
 export const DRAFT_PATH = 'workshop://draft'
 export interface AgentContext {
@@ -21,8 +21,8 @@ export const AGENT_TOOLS: ToolSchemaDTO[] = [
   schema('preset_rename_block', 'Rename a uniquely named unlocked block locally.', { old_name: str, new_name: str }, ['old_name', 'new_name']),
   schema('preset_toggle_block', 'Set block enabled state locally.', { name: str, enabled: { type: 'boolean' } }, ['name', 'enabled']),
   schema('workshop_update_block', 'Edit role or depth of an unlocked block locally.', { name: str, role: { enum: ['system', 'user', 'assistant', 'user_append', 'assistant_append'] }, depth: { type: 'integer', minimum: 0 } }, ['name']),
-  schema('preset_insert_block', 'Insert a new prompt locally; optional before/after uniquely named block. No category creation.', { name: str, content: str, before: str, after: str, role: { enum: ['system', 'user', 'assistant'] }, position: { enum: ['pre_history', 'post_history'] }, enabled: { type: 'boolean' } }, ['name', 'content']),
-  schema('preset_move_block', 'Move a uniquely named unlocked block before or after another block locally.', { name: str, before: str, after: str }, ['name']),
+  schema('preset_insert_block', 'Insert a prompt locally. category is an existing exact category name, or empty for ungrouped. Without category, inherit the before/after anchor category; without anchors, append to the chosen category or preset. Category creation is unavailable.', { name: str, content: str, category: str, before: str, after: str, role: { enum: ['system', 'user', 'assistant'] }, position: { enum: ['pre_history', 'post_history'] }, enabled: { type: 'boolean' } }, ['name', 'content']),
+  schema('preset_move_block', 'Move an unlocked prompt before/after a block or to the end of an existing category. category is an exact category name, or empty for ungrouped; omit to inherit the anchor category. Other prompts must retain their category membership.', { name: str, category: str, before: str, after: str }, ['name']),
   schema('preset_delete_block', 'Delete a uniquely named unlocked block locally.', { name: str }, ['name']),
 ]
 export const COMPATIBLE_TOOLS = new Set(AGENT_TOOLS.map(t => t.name).filter(name => name.startsWith('preset_')))
@@ -87,14 +87,32 @@ export class AgentDraft {
         if (!text('name').trim() || next.blocks.some(b => b.name === text('name'))) throw Error('Choose a nonempty unique name.')
         block = { id: crypto.randomUUID(), name: text('name'), content: text('content'), role: (args.role ?? 'system') as PromptBlockDTO['role'], enabled: (args.enabled ?? true) as boolean, position: (args.position ?? 'pre_history') as PromptBlockDTO['position'], depth: 0, marker: null, isLocked: false, color: null, injectionTrigger: [], group: null }
       } else {
-        if (!args.before && !args.after) throw Error('A move needs before or after.')
+        if (!args.before && !args.after && args.category === undefined) throw Error('A move needs before, after or category.')
+        if (computePromptGroups(this.value.blocks).find(group => group.children.some(child => child.id === block!.id))?.categoryBlock?.isLocked) throw Error('Locked categories cannot be regrouped.')
         next.blocks = next.blocks.filter(b => b !== block)
       }
+      if (args.before === '' || args.after === '') throw Error('Placement anchors must have a nonempty block name.')
+      const groups = computePromptGroups(next.blocks)
       const anchor = args.before ?? args.after
-      const index = anchor ? next.blocks.indexOf(find(anchor as string, next.blocks)) + (args.after ? 1 : 0) : next.blocks.length
+      const anchorBlock = anchor ? find(anchor as string, next.blocks) : null
+      const category = args.category !== undefined ? (text('category') ? find(text('category'), next.blocks) : null)
+        : anchorBlock?.marker === 'category' ? (args.after ? anchorBlock : null)
+        : groups.find(group => group.children.some(child => child.id === anchorBlock?.id))?.categoryBlock ?? null
+      if (category && category.marker !== 'category') throw Error('category must name an existing category block.')
+      if (category?.isLocked) throw Error('Locked categories cannot receive prompts.')
+      const categoryGroup = category ? groups.find(group => group.categoryBlock?.id === category.id)! : null
+      const end = categoryGroup ? next.blocks.indexOf(categoryGroup.children.at(-1) ?? category!) + 1 : next.blocks.length
+      const index = anchorBlock ? next.blocks.indexOf(anchorBlock) + (args.after ? 1 : 0) : end
+      if (category && (index <= next.blocks.indexOf(category) || index > end)) throw Error('Placement must be inside the chosen category; omit the anchor to append to it.')
+      if (!category && groups.some(group => group.categoryBlock && index > next.blocks.indexOf(group.categoryBlock)
+        && index <= next.blocks.indexOf(group.children.at(-1) ?? group.categoryBlock))) throw Error('Ungrouped placement would split a category. Choose a category boundary or inherit its membership.')
+      block!.group = category?.id ?? null
       next.blocks.splice(index, 0, block!)
+      const membership = (blocks: PromptBlockDTO[]) => new Map(computePromptGroups(blocks).flatMap(group => group.children.map(child => [child.id, group.categoryBlock?.id ?? null] as const)))
+      const beforeGroups = membership(this.value.blocks), afterGroups = membership(next.blocks)
+      if (this.value.blocks.some(other => other.id !== block!.id && other.marker !== 'category' && beforeGroups.get(other.id) !== afterGroups.get(other.id))) throw Error('Placement would regroup other prompts. Choose a category boundary.')
     }
     this.value = next
-    return { ok: true, localDraftOnly: true, block: block?.name, diagnostics: buildReviewIssues(next.blocks, this.context.values) }
+    return { ok: true, localDraftOnly: true, block: block?.name, blockId: block?.id, category: next.blocks.find(b => b.id === block?.group)?.name ?? null, diagnostics: buildReviewIssues(next.blocks, this.context.values) }
   }
 }

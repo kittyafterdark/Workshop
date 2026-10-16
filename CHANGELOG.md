@@ -2,6 +2,13 @@
 
 Release history for Workshop. These entries describe behavior at the time of each release; see the [README](README.md) for the current guide.
 
+## 0.9.0 grouped insertion and agent change review
+
+- Insert/move tools accept an existing category by exact name, inherit an adjacent prompt's category by default, and can explicitly target ungrouped placement. Conflicting placement, ambiguous targets and locked categories are refused; unrelated prompts retain their membership.
+- Successful edit runs select the first added or affected prompt, clear a hiding prompt filter, expand its category and reveal its row.
+- A Draft changes card reports the actual before/after snapshots: additions, edits, reordering, deletions, line diffs and setting changes. Open prompt links navigate to surviving blocks. Large diffs remain fully reviewable on demand.
+- Completion status reports how many prompts changed; a read-only or no-op run says no prompt changes. Generated changes remain local until final Apply.
+
 ## 0.8.0 automatic backups and assistant polish
 
 - **Preset backups → Settings** configures each user's preset independently: opt-in timed backups, a 1–1440 minute interval, and how many files to keep (0 means unlimited). Settings persist in public per-user extension storage across restarts. Timers run only while Workshop is open, include unsynced manual/agent drafts, skip unchanged snapshots, and stop on close/unload. They do not Apply or save the live preset.

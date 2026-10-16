@@ -1,5 +1,7 @@
 import { renderAgentMarkdown } from './agent-markdown.js'
-import type { SpindleFrontendContext, SpindlePresetEditorDraft } from 'lumiverse-spindle-types'
+import { agentBlockChanges } from './agent-changes.js'
+import { renderAgentChanges } from './agent-change-view.js'
+import type { PromptBlockDTO, SpindleFrontendContext, SpindlePresetEditorDraft } from 'lumiverse-spindle-types'
 import type { AgentContext } from './agent-core.js'
 import type { AgentResponse } from './agent-backend.js'
 import { presetFingerprint } from './backup-core.js'
@@ -85,6 +87,26 @@ export const AGENT_CSS = `
 .workshop-agent-message-body th,.workshop-agent-message-body td {border:1px solid var(--lumiverse-border);padding:7px 10px;text-align:left}
 .workshop-agent-message-body a {color:var(--lumiverse-primary,#a3a0e5)}
 .workshop-agent-message-body a:focus-visible {outline:2px solid currentColor;outline-offset:2px}
+.workshop-agent-changes {padding:14px;border:1px solid var(--lumiverse-primary,#a3a0e5);border-radius:12px;background:var(--lumiverse-bg);font-size:12px}
+.workshop-agent-changes h3 {font-size:14px;margin:0 0 7px}
+.workshop-agent-changes>details {margin-top:10px;border:1px solid var(--lumiverse-border);border-radius:8px;overflow:hidden}
+.workshop-agent-changes summary {cursor:pointer;padding:11px 12px;overflow-wrap:anywhere;font-weight:600}
+.workshop-agent-changes details>dl,.workshop-agent-changes details>button,.workshop-agent-changes details>div {margin:10px 12px}
+.workshop-agent-change-settings {margin:8px 12px;border:1px solid var(--lumiverse-border);border-radius:6px}
+.workshop-agent-changes .workshop-agent-change-settings summary {font-size:11px;font-weight:400;padding:8px 10px}
+.workshop-agent-changes .workshop-agent-change-placement {margin:8px 12px;font-size:11px;overflow-wrap:anywhere}
+.workshop-agent-changes dl {display:flex;flex-direction:column;gap:6px}
+.workshop-agent-changes dl>div {display:grid;grid-template-columns:85px minmax(0,1fr);gap:10px}
+.workshop-agent-changes dt {color:var(--lumiverse-text-muted)}.workshop-agent-changes dd {margin:0;overflow-wrap:anywhere}
+.workshop-agent-diff-scroll {overflow:auto;max-height:300px;margin-top:10px;overscroll-behavior:contain;border:1px solid var(--lumiverse-border);border-radius:6px}
+.workshop-agent-diff {border-collapse:collapse;min-width:100%;font:11px var(--lumiverse-font-mono,monospace);line-height:1.6}
+.workshop-agent-diff caption {text-align:left;padding:8px;font:11px sans-serif;color:var(--lumiverse-text-muted)}
+.workshop-agent-diff th {text-align:left;padding:5px 7px;border-bottom:1px solid var(--lumiverse-border);font:10px sans-serif}
+.workshop-agent-diff td {padding:1px 7px;vertical-align:top;white-space:pre}
+.workshop-agent-diff td:not(:last-child) {width:1%;color:var(--lumiverse-text-muted)}
+.workshop-agent-diff .diff-add {background:rgba(70,180,120,.13)}
+.workshop-agent-diff .diff-remove {background:rgba(220,80,105,.13)}
+.workshop-agent-diff .diff-gap {color:var(--lumiverse-text-muted);background:var(--lumiverse-fill-subtle,rgba(128,128,128,.08))}
 .workshop-agent-thinking {padding:12px 14px;border:1px solid var(--lumiverse-border);border-radius:10px;color:var(--lumiverse-text-muted)}
 .workshop-agent-thinking[hidden] {display:none}
 .workshop-agent details {font-size:12px}.workshop-agent pre {white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;font-size:11px}
@@ -138,7 +160,7 @@ export class AgentWorkspace {
   busy = false
   private failedInstruction: string | null = null
   private thinking: HTMLPreElement | null = null
-  private request: { id: string; fingerprint: string; instruction: string; history: Array<{ role: 'user' | 'assistant'; content: string }> } | null = null
+  private request: { id: string; fingerprint: string; instruction: string; before: PromptBlockDTO[]; history: Array<{ role: 'user' | 'assistant'; content: string }> } | null = null
   private history: Array<{ role: 'user' | 'assistant'; content: string }> = []
   private unsubscribe: () => void
   private timer: ReturnType<typeof setTimeout> | null = null
@@ -157,7 +179,7 @@ export class AgentWorkspace {
     stage: (preset: SpindlePresetEditorDraft, baseline: string) => void
     navigation: HTMLElement
     initialBlockId: string | null
-    onSelection: () => void
+    onSelection: (id: string | null, reveal?: boolean) => void
   }) {
     this.element.className = 'workshop-agent'
     this.element.setAttribute('aria-label', 'Agent workspace')
@@ -263,7 +285,7 @@ export class AgentWorkspace {
     const preset = this.options.snapshot()
     if (!preset.blocks.some(b => b.id === this.selectedId)) {
       this.selectedId = (preset.blocks.find(b => b.marker !== 'category') ?? preset.blocks[0])?.id ?? null
-      if (this.element.isConnected) this.options.onSelection()
+      if (this.element.isConnected) this.options.onSelection(this.selectedId)
     }
     this.renderContent()
     this.element.querySelector('[data-agent="context"]')!.textContent = JSON.stringify({ preset, ...this.options.context() }, null, 2)
@@ -277,13 +299,13 @@ export class AgentWorkspace {
     this.updateControls()
   }
   get selectedBlockId(): string | null { return this.selectedId }
-  selectBlock(id: string | null): void {
+  selectBlock(id: string | null, reveal = false, focus = true): void {
     if (id && !this.options.snapshot().blocks.some(b => b.id === id)) return
     this.selectedId = id
     this.renderContent()
-    this.options.onSelection()
+    this.options.onSelection(id, reveal)
     if (window.innerWidth <= 1100) this.setNavigation(false)
-    this.area('content').focus({ preventScroll: true })
+    if (focus) this.area('content').focus({ preventScroll: true })
   }
   toggleNavigation(): void { this.setNavigation(!this.navigationOpen); if (!this.navigationOpen) this.button('prompts').focus({ preventScroll: true }) }
   closeNavigation(): boolean {
@@ -307,7 +329,7 @@ export class AgentWorkspace {
     if (this.busy || !this.select('connection').value || !(retryInstruction ?? this.area('instruction').value).trim()) return
     try {
       const preset = this.options.snapshot(), instruction = (retryInstruction ?? this.area('instruction').value).trim()
-      this.request = { id: crypto.randomUUID(), fingerprint: presetFingerprint(preset), instruction, history: [...this.history, { role: 'user', content: instruction }] }
+      this.request = { id: crypto.randomUUID(), fingerprint: presetFingerprint(preset), instruction, before: structuredClone(preset.blocks), history: [...this.history, { role: 'user', content: instruction }] }
       this.failedInstruction = null
       this.busy = true; this.updateControls(); this.status('Working in a detached draft…')
       if (!retryInstruction) this.message('user', instruction)
@@ -347,9 +369,22 @@ export class AgentWorkspace {
     if (this.timer) clearTimeout(this.timer); this.timer = null
     try {
       if (p.error) throw Error(p.error)
+      const changes = p.preset ? agentBlockChanges(request.before, p.preset.blocks) : []
       if (p.preset && presetFingerprint(p.preset) !== request.fingerprint) this.options.stage(p.preset, request.fingerprint)
       this.history = [...request.history, { role: 'assistant', content: p.content ?? '' }]
-      this.message('assistant', p.content ?? 'Finished.'); this.status('Finished. Review local drafts and preview before Apply.')
+      this.message('assistant', p.content ?? 'Finished.'); this.status(changes.length ? `Finished. ${changes.length} prompt${changes.length === 1 ? '' : 's'} changed locally. Review changes and preview before Apply.` : 'Finished. No prompt changes in this run.')
+      if (changes.length) {
+        const primary = changes.find(change => change.kind === 'added') ?? changes.find(change => change.after) ?? changes[0]
+        if (primary.after) this.selectBlock(primary.id, true, false)
+        const card = renderAgentChanges(changes, primary.id, id => {
+          if (!this.options.snapshot().blocks.some(block => block.id === id)) { this.status('This prompt is no longer in the current draft.'); return }
+          this.selectBlock(id, true)
+          this.area('content').scrollIntoView({ block: 'nearest' })
+        })
+        const log = this.element.querySelector('[data-agent="log"]')!
+        log.append(card)
+        log.scrollTop += card.getBoundingClientRect().top - log.getBoundingClientRect().top - 12
+      }
     } catch (error) {
       if (p.error) this.failedInstruction = request.instruction
       if (p.content) this.message('assistant', p.content)

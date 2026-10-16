@@ -112,7 +112,7 @@ To use the assistant:
 1. Select a **Lumi connection**.
 2. Leave **Model** empty to use that connection's current default, choose a model suggestion, or type a model ID. **Refresh models** reloads the connection's catalogue. Changing connection clears the override; it does not change your saved connection settings.
 3. Describe a question or edit and send it. Enter sends; Shift+Enter adds a line. Send becomes **Stop** during a run.
-4. Review the response, local prompt changes and assembly preview, then choose **Apply drafts** when ready.
+4. Review the **Draft changes** card and assembly preview, then choose **Apply drafts** when ready. Successful edits select the first added or affected prompt, clear a hiding search filter and expand its category.
 
 For example:
 
@@ -120,9 +120,11 @@ For example:
 >
 > Review unknown variable references and propose fixes without changing the tone of the prompts.
 
-Assistant requests and requested preset context go through your selected Lumi connection. The assistant can inspect the mounted preset, variables, diagnostics, preview and local changes. Its draft tools can edit prompt content, names, role/depth, enabled state and order, and insert or delete prompts.
+Assistant requests and requested preset context go through your selected Lumi connection. The assistant can inspect the mounted preset, variables, diagnostics, preview and local changes. Its draft tools can edit prompt content, names, role/depth, enabled state and order, and insert or delete prompts. Insert and move can target an existing category by exact name; placement beside a prompt inherits its category by default. An empty category requests ungrouped placement. Inconsistent placements that would regroup other prompts are refused.
 
-The current tools do not edit locked prompts, category structure, variable definitions, live selections, mocks, preset settings or regex metadata. The assistant has no Apply tool. Generated changes are staged only when the run finishes successfully and its draft and host snapshots are still current. Stop or a failed run leaves earlier local drafts intact.
+The current tools do not edit locked prompts or locked categories, create/rename/delete category blocks, or edit variable definitions, live selections, mocks, preset settings or regex metadata. The assistant has no Apply tool. Generated changes are staged only when the run finishes successfully and its draft and host snapshots are still current. Stop or a failed run leaves earlier local drafts intact.
+
+The review card lists added, edited, reordered and removed prompts, with line diffs and settings changes such as role, depth and category. **Open prompt** jumps to an affected prompt. Diffs compare the actual drafts before and after the run; tools still send complete replacement content, without requiring a patch format. Long diffs can reveal the remaining lines on demand.
 
 Replies support Markdown. **Thinking** shows reasoning the provider returns after each generation call; it is not a live token stream. Expand **Tool activity** to inspect completed or rejected calls. **Retry last request** resends a failed instruction using the current draft, connection and model, while preserving the next message you've typed.
 

@@ -1531,7 +1531,22 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       snapshot: currentBackupSnapshot,
       navigation: root.querySelector<HTMLElement>('.workshop-rail.left')!,
       initialBlockId: selectedBlockId,
-      onSelection: renderPrompts,
+      onSelection: (id, reveal) => {
+        if (reveal && id) {
+          promptQuery = ''; promptSearch.value = ''
+          const category = computePromptGroups(effectiveValue().blocks).find(group => group.children.some(block => block.id === id))?.categoryBlock
+          if (category) collapsedCategories.delete(category.id)
+        }
+        renderPrompts()
+        if (reveal && id) {
+          const row = Array.from(promptList.querySelectorAll<HTMLElement>('[data-block-id]')).find(row => row.dataset.blockId === id)
+          if (row && row.offsetParent !== null) {
+            const bounds = row.getBoundingClientRect(), viewport = promptList.getBoundingClientRect()
+            if (bounds.top < viewport.top) promptList.scrollTop -= viewport.top - bounds.top
+            else if (bounds.bottom > viewport.bottom) promptList.scrollTop += bounds.bottom - viewport.bottom
+          }
+        }
+      },
       context: () => ({ values: structuredClone(canonicalValue.promptVariableValues), mocks: variableSandbox.overlay(effectiveValue().blocks, canonicalValue.promptVariableValues), preview: structuredClone(previewResult), changes: [...issueReview.blockIds, ...(pendingRestore ? ['Whole preset draft'] : [])] }),
       stage: (preset, baseline) => {
         if (destroyed || applyingDrafts) throw Error('Workshop is unavailable for edits.')
