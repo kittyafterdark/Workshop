@@ -527,9 +527,8 @@ var FIND_REPLACE_CSS = `
 .workshop-find-fields label { display: grid; gap: 6px; font-size: 13px; }
 .workshop-find-fields textarea { box-sizing: border-box; width: 100%; min-height: 80px; resize: vertical; padding: 8px; border: 1px solid var(--lumiverse-border); border-radius: 6px; background: var(--lumiverse-bg-deep, #101014); color: inherit; font: inherit; }
 .workshop-find-results { list-style: none; padding: 0; max-height: 38vh; overflow: auto; }
-.workshop-find-results li { margin-bottom: 8px; padding: 10px; border: 1px solid var(--lumiverse-border); border-radius: 6px; }
-.workshop-find-choice { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; cursor: pointer; overflow-wrap: anywhere; }
-.workshop-find-choice input { flex: none; }
+.workshop-find-results li { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 8px; margin-bottom: 8px; padding: 10px; border: 1px solid var(--lumiverse-border); border-radius: 6px; }
+.workshop-find-choice { margin: 3px 0 0; cursor: pointer; }
 .workshop-find-results summary { cursor: pointer; overflow-wrap: anywhere; }
 .workshop-find-results pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 180px; overflow: auto; }
 .workshop-find-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
@@ -579,15 +578,12 @@ function openFindReplace(root, blocks, stage, onClose) {
     list.replaceChildren();
     for (const change of changes) {
       const item = document.createElement("li");
-      const label = document.createElement("label");
-      label.className = "workshop-find-choice";
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
+      checkbox.className = "workshop-find-choice";
+      checkbox.setAttribute("aria-label", `Include prompt ${change.before.name}`);
       checkbox.checked = selected.has(change.before.id);
       checkbox.disabled = ambiguousIds.has(change.before.id);
-      const caption = document.createElement("span");
-      caption.textContent = `Include prompt ${change.before.name}`;
-      label.append(checkbox, caption);
       checkbox.addEventListener("change", () => {
         if (checkbox.checked)
           selected.add(change.before.id);
@@ -595,7 +591,7 @@ function openFindReplace(root, blocks, stage, onClose) {
           selected.delete(change.before.id);
         updateAction();
       });
-      item.append(label);
+      item.append(checkbox);
       const details = document.createElement("details");
       const summary = document.createElement("summary");
       summary.textContent = `${change.before.name} — ${change.count} replacement${change.count === 1 ? "" : "s"}`;
