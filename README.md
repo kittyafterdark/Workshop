@@ -13,6 +13,7 @@ Workshop extends Lumi's Loom preset editor with room to work on large presets. I
 | Feature | Use it to… |
 | --- | --- |
 | Prompt workspace | Search prompts, collapse categories, and edit two prompts side by side. |
+| Manage prompts | Add prompts, markers and categories; reorder or delete items without leaving Workshop. |
 | Preset find and replace | Preview literal text replacements across prompt content, choose specific prompts or replace all, then Apply with a “Before Find and Replace” recovery backup. |
 | Unsynced editing | Work across multiple prompts while keeping changes local until Apply. |
 | Variable sandbox | Try mock values in grouped controls without changing real variable selections. |
@@ -57,11 +58,24 @@ Select a prompt from the left rail and edit it with Lumi's native editor. Search
 
 **Save keeps a prompt in Workshop's local draft batch.** You can move between prompts and continue editing without applying each one separately. The preview and diagnostics follow the local batch.
 
-When you're finished, choose **Apply** in the Workshop header. Workshop first backs up the previous preset state, then writes your draft batch and asks Lumi to persist it. The header may show **Apply (count)**, **Apply restore**, or **Apply drafts**, depending on the work you have staged. Agent drafts require confirmation.
+When you're finished, choose **Apply** in the Workshop header. Workshop first backs up the previous preset state, then writes your draft batch and asks Lumi to persist it. The header may show **Apply (count)**, **Apply changes**, **Apply restore**, or **Apply drafts**, depending on the work you have staged. Agent drafts require confirmation.
 
 **Discard drafts** returns to the current preset. If the preset changes outside Workshop, a conflicting Apply is refused and your local work is retained.
 
 Local drafts belong to the open Workshop session. They do not survive closing Workshop or reloading the page. Create a backup if you want a recoverable copy of unfinished work.
+
+## Manage the prompt list
+
+Choose **Manage prompts** (+) in the PROMPTS header. The modal shows titles and type/status badges; content editing stays in Workshop's main editor.
+
+- Use **Add prompt**, **Add marker**, or **Add category**. Choose a category for the new prompt or marker, or leave it ungrouped. New items start enabled, with empty content; markers use Lumi's native defaults.
+- Drag a handle to reorder. Dropping below a category title inserts a prompt into that category. Categories move with their children. Clear the title search to use drag handles.
+- For keyboard or touch use, select a title and choose **Move up**, **Move down**, or a category under **Move to**, then **Move**. Moving an ungrouped prompt up/down skips complete categories; it keeps the prompt ungrouped.
+- **Delete** asks for confirmation. For categories, choose **Keep prompts ungrouped** or **Delete category and prompts**. Locked prompts and locked categories are protected; insertion markers can still be organized even when their content is locked.
+
+**Done** keeps the list changes in Workshop and selects the last surviving new item for editing. **Cancel** or Escape discards only the current modal session. Existing prompt drafts are retained. Choose **Apply changes** in Workshop to back up and persist the completed batch, or **Discard drafts** to return to the current preset. Manage prompts is unavailable during Agent mode.
+
+If the preset changes outside Workshop while organizing, Done refuses the stale result. Cancel and reopen the modal against the current preset. Changes after Done are also checked by the final Apply.
 
 ## Test variables and inspect the preview
 

@@ -1,3 +1,12 @@
+# Manage prompts verification
+
+- `bun run verify`: typecheck, unit tests, and extension build.
+- `test/prompt-manager.test.ts` covers detached factory defaults, supported markers, implicit category memberships, root breakouts, category movement, keyboard steps across categories, both category deletion choices, duplicate identities/titles, empty lists, and atomic rejection of invalid or locked operations.
+- `scripts/check-prompt-manager.mjs` uses the existing controlled Workshop/Spindle/native-editor fixture on desktop (1440px) and a touch-enabled notched-phone representation (390px). It checks add forms, marker creation, category movement, mouse dragging, move controls, both deletion choices, title search, local cancellation, existing unsaved editor content, close/reopen, final Apply, pre-Apply backup contents, storage failure/retry, stale organizer and staged-draft conflicts, discard, teardown/remount, focus return, accessible control names, disclosure states, and a 143-item list at a shorter mobile height.
+- Run after `bun run build`, with `PLAYWRIGHT_MODULE` pointing to an existing Playwright `index.mjs`. Set `PLAYWRIGHT_CHANNEL=msedge` to use installed Edge and optionally `WORKSHOP_SCREENSHOT_DIR` for screenshots.
+- Existing find/replace and issue-review browser regressions are also run on desktop/mobile to check the shared draft and Apply flow.
+- These checks use synthetic data. Live Lumiverse integration and physical iPhone/PWA behavior were not exercised.
+
 # Preset find and replace verification
 
 - `bun run verify`: typecheck, unit tests, and synchronized extension bundles.

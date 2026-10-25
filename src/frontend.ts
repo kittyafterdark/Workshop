@@ -31,6 +31,7 @@ import {
 } from './workshop-core.js'
 
 import { openFindReplace, FIND_REPLACE_CSS } from './find-replace.js'
+import { openPromptManager, PROMPT_MANAGER_CSS } from './prompt-manager.js'
 import { ReferenceView, REFERENCE_CSS } from './reference-view.js'
 import { AgentWorkspace, AGENT_CSS, confirmAgentApply } from './agent-workspace.js'
 
@@ -226,6 +227,7 @@ const WORKSHOP_CSS = String.raw`
 }
 .workshop-editor-region { grid-column: 1; grid-row: 1; min-width: 0; min-height: 0; overflow: hidden; padding: 12px 16px 16px; }
 ${FIND_REPLACE_CSS}
+${PROMPT_MANAGER_CSS}
 .workshop-editor-region { display: flex; flex-direction: column; }
 .workshop-preset-tools { flex: none; display: flex; gap: 8px; padding-bottom: 10px; }
 .workshop-preset-tools[hidden] { display: none; }
@@ -663,6 +665,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
           <span class="workshop-rail-title">PROMPTS</span>
           <span class="workshop-count" data-role="prompt-count"></span>
           <span class="workshop-rail-tools">
+            <button class="workshop-mini-button" type="button" data-action="manage-prompts" aria-label="Manage prompts" title="Manage prompts">+</button>
             <button class="workshop-mini-button" type="button" data-action="toggle-categories" aria-label="Collapse all categories" title="Collapse all categories">${ICONS.right}</button>
           </span>
           <button class="workshop-mini-button workshop-rail-collapse" type="button" data-action="left" aria-label="Collapse prompts">${ICONS.left}</button>
@@ -748,6 +751,8 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   const rightRailButton = root.querySelector<HTMLButtonElement>('[data-action="right"]')!
   const previewResizer = root.querySelector<HTMLElement>('[data-resize="preview"]')!
 
+  let structureDraftsPending = false
+  let closePromptManager: (() => void) | null = null
   let findReplacePending = false
   let closeFindReplace: (() => void) | null = null
   const issueReview = new WorkshopIssueReview()
@@ -844,11 +849,11 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     const draftCount = Number(Boolean(pendingRestore)) + new Set([...issueReview.blockIds, ...(primaryDraftValue && selectedBlockId ? [selectedBlockId] : []), ...(secondaryDraftValue && secondaryBlockId ? [secondaryBlockId] : [])]).size
     root.classList.toggle('has-unsynced', draftCount > 0)
     const apply = root.querySelector<HTMLButtonElement>('[data-action="apply-drafts"]')!
-    apply.textContent = agentDraftsPending ? 'Apply drafts' : pendingRestore ? 'Apply restore' : `Apply (${draftCount})`
+    apply.textContent = agentDraftsPending ? 'Apply drafts' : structureDraftsPending ? 'Apply changes' : pendingRestore ? 'Apply restore' : `Apply (${draftCount})`
     apply.disabled = draftCount === 0 || applyingDrafts
     root.querySelector<HTMLButtonElement>('[data-action="discard-drafts"]')!.disabled = draftCount === 0 || applyingDrafts
     statusDot.classList.toggle('is-draft', draftCount > 0)
-    statusCopy.textContent = agentDraftsPending ? 'Unsynced agent drafts' : pendingRestore ? 'Unsynced preset restore' : draftCount === 0
+    statusCopy.textContent = agentDraftsPending ? 'Unsynced agent drafts' : structureDraftsPending ? 'Unsynced prompt list' : pendingRestore ? 'Unsynced preset restore' : draftCount === 0
       ? 'Synced'
       : draftCount === 1
         ? '1 unsynced prompt'
@@ -1004,6 +1009,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   }
 
   function renderPrompts(): void {
+    root.querySelector<HTMLButtonElement>('[data-action="manage-prompts"]')!.disabled = applyingDrafts || Boolean(agentWorkspace)
     root.querySelector<HTMLElement>('.workshop-preset-tools')!.hidden = Boolean(selectedBlockId || secondaryBlockId || agentWorkspace)
     const activeBlockId = agentWorkspace?.selectedBlockId ?? selectedBlockId
     const previousScrollTop = promptList.scrollTop
@@ -1372,6 +1378,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   }
 
   function discardLocalDrafts(): void {
+    structureDraftsPending = false
     findReplacePending = false
     issueReview.clear()
     pendingRestore = null
@@ -1429,6 +1436,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       })
       if (!applied) return `Prompt ${conflict} changed or disappeared outside Workshop. Your local drafts are retained. Discard drafts to restart from the latest preset.`
       issueReview.clear()
+      structureDraftsPending = false
       findReplacePending = false
       pendingRestore = null
       agentDraftsPending = false
@@ -1679,6 +1687,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
           issueReview.clear()
           primaryDraftValue = null
           secondaryDraftValue = null
+          structureDraftsPending = false
           pendingRestore = new PresetRestoreDraft(latest, response.backup.preset)
           if (!baseBlocks().some(block => block.id === selectedBlockId)) selectedBlockId = null
           if (!baseBlocks().some(block => block.id === secondaryBlockId)) secondaryBlockId = null
@@ -1730,6 +1739,44 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     })
   }
   root.querySelector<HTMLButtonElement>('[data-action="backups"]')!.addEventListener('click', openBackups)
+  root.querySelector<HTMLButtonElement>('[data-action="manage-prompts"]')!.addEventListener('click', () => {
+    if (closePromptManager || destroyed || applyingDrafts || agentWorkspace || closeIssueReview || closeBackups) return
+    const notice = root.querySelector<HTMLElement>('[data-role="draft-notice"]')!
+    try {
+      const initial = currentBackupSnapshot()
+      const host = ctx.ui.presetEditor.getState().preset!
+      if ((pendingRestore && !pendingRestore.matches(host)) || !issueReview.apply(baseBlocks()).ok) throw Error('Local drafts conflict with the host preset. Resolve or discard them before managing prompts.')
+      const hostBaseline = presetFingerprint(host), localBaseline = presetFingerprint(initial)
+      closePromptManager = openPromptManager(root, initial.blocks, (blocks, createdId) => {
+        try {
+          if (destroyed || applyingDrafts || agentWorkspace) return 'Workshop is busy. Try again after the current action finishes.'
+          const latest = ctx.ui.presetEditor.getState().preset
+          if (!latest || presetFingerprint(latest) !== hostBaseline || presetFingerprint(currentBackupSnapshot()) !== localBaseline) return 'The preset or local drafts changed while this dialog was open. Cancel and reopen Manage prompts; your existing Workshop edits are retained.'
+          if ((pendingRestore && !pendingRestore.matches(latest)) || !issueReview.apply(baseBlocks()).ok) return 'Local drafts conflict with the host preset. Cancel and resolve them first.'
+          pendingRestore = new PresetRestoreDraft(latest, { ...initial, blocks })
+          structureDraftsPending = true
+          issueReview.clear()
+          primaryDraftValue = null; secondaryDraftValue = null
+          if (createdId) { selectedBlockId = createdId; promptQuery = ''; promptSearch.value = '' }
+          if (!blocks.some(block => block.id === selectedBlockId)) selectedBlockId = null
+          if (!blocks.some(block => block.id === secondaryBlockId) || selectedBlockId === secondaryBlockId) secondaryBlockId = null
+          if (selectedBlockId) for (const group of computePromptGroups(blocks)) {
+            if (group.children.some(block => block.id === selectedBlockId) && group.categoryBlock) collapsedCategories.delete(group.categoryBlock.id)
+          }
+          editor.destroy(); secondaryEditor.destroy()
+          primaryEditorBase = baseBlocks(); secondaryEditorBase = baseBlocks()
+          editor = mountEditorLane('primary'); secondaryEditor = mountEditorLane('secondary')
+          recomputeDerived(); renderEditorVisibility(); refreshLocalDrafts()
+          return null
+        } catch (error) { return error instanceof Error ? error.message : 'Could not retain prompt list changes.' }
+      }, () => { closePromptManager = null })
+      setDraftStatus()
+    } catch (error) {
+      notice.textContent = error instanceof Error ? error.message : 'Could not open Manage prompts.'
+      notice.hidden = false; root.classList.add('has-draft-error')
+    }
+  })
+  cleanups.push(() => closePromptManager?.())
   root.querySelector<HTMLButtonElement>('[data-action="find-replace"]')!.addEventListener('click', () => {
     if (closeFindReplace || destroyed || applyingDrafts || agentWorkspace) return
     closeFindReplace = openFindReplace(root, () => localValue().blocks, (changes) => {
@@ -1788,7 +1835,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       el('prompt').textContent = issue ? (blocks.find((block) => block.id === issue.blockId)?.name ?? issue.blockId) : ''
       el('message').textContent = issue?.message ?? 'Recheck to refresh the review queue, or Apply your local fixes.'
       el('state').textContent = issue ? (!editable() ? 'Editing unavailable: missing or ambiguous prompt identity.' : activeIssues.some((next) => next.key === issue.key) ? 'Still present' : 'Resolved locally') : ''
-      el('drafts').textContent = pendingRestore ? 'Unsynced preset restore' : issueReview.size ? `${issueReview.size} unsynced prompt${issueReview.size === 1 ? '' : 's'}` : 'No unsynced drafts'
+      el('drafts').textContent = structureDraftsPending ? 'Unsynced prompt list' : pendingRestore ? 'Unsynced preset restore' : issueReview.size ? `${issueReview.size} unsynced prompt${issueReview.size === 1 ? '' : 's'}` : 'No unsynced drafts'
       el('notice').textContent = error || 'Save keeps edits local. Apply syncs your draft batch.'
       if (error) el('notice').setAttribute('role', 'alert')
       else el('notice').removeAttribute('role')
@@ -2536,6 +2583,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     if (destroyed) return
     if (!force && agentWorkspace) { await leaveAgent(); return }
     if (agentWorkspace) { agentWorkspace.destroy(); agentWorkspace = null }
+    closePromptManager?.()
     closeIssueReview?.()
     closeBackups?.()
     const dirtyBlocks = [
@@ -2546,7 +2594,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       const names = dirtyBlocks.map((block) => block.name || block.id).join(', ')
       const result = await ctx.ui.showConfirm({
         title: dirtyBlocks.length > 1 ? 'Discard prompt drafts?' : 'Discard prompt draft?',
-        message: `${names || (pendingRestore ? 'Preset restore' : 'Issue review')} has unapplied edits${issueReview.size ? `, including ${issueReview.size} locally saved prompts` : ''}. Close Workshop and discard them?`,
+        message: `${names || (structureDraftsPending ? 'Prompt list' : pendingRestore ? 'Preset restore' : 'Issue review')} has unapplied edits${issueReview.size ? `, including ${issueReview.size} locally saved prompts` : ''}. Close Workshop and discard them?`,
         variant: 'warning',
         confirmLabel: 'Discard and close',
       })
