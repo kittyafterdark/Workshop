@@ -531,6 +531,9 @@ var FIND_REPLACE_CSS = `
 .workshop-find-choice { margin: 3px 0 0; cursor: pointer; }
 .workshop-find-results summary { cursor: pointer; overflow-wrap: anywhere; }
 .workshop-find-results pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 180px; overflow: auto; }
+.workshop-find-results mark { color: inherit; border-radius: 2px; }
+.workshop-find-results .workshop-find-removed { color: #ffc1c1; background: #692929; }
+.workshop-find-results .workshop-find-added { color: #baf5c8; background: #205331; }
 .workshop-find-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 @media (max-width: 600px) { .workshop-find-fields { grid-template-columns: 1fr; } .workshop-find-dialog { padding: 14px; } }
 `;
@@ -596,11 +599,23 @@ function openFindReplace(root, blocks, stage, onClose) {
       const summary = document.createElement("summary");
       summary.textContent = `${change.before.name} — ${change.count} replacement${change.count === 1 ? "" : "s"}`;
       details.append(summary);
-      for (const [label, content] of [["Before", change.before.content], ["After", change.after.content]]) {
+      const parts = change.before.content.split(find.value);
+      for (const label of ["Before", "After"]) {
         const heading = document.createElement("h3");
         heading.textContent = label;
         const text = document.createElement("pre");
-        text.textContent = content;
+        parts.forEach((part, index) => {
+          if (index > 0) {
+            const value = label === "Before" ? find.value : replacement.value;
+            if (value) {
+              const highlight = document.createElement("mark");
+              highlight.className = label === "Before" ? "workshop-find-removed" : "workshop-find-added";
+              highlight.textContent = value;
+              text.append(highlight);
+            }
+          }
+          text.append(document.createTextNode(part));
+        });
         details.append(heading, text);
       }
       item.append(details);
