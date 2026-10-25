@@ -13,7 +13,7 @@ Workshop extends Lumi's Loom preset editor with room to work on large presets. I
 | Feature | Use it to… |
 | --- | --- |
 | Prompt workspace | Search prompts, collapse categories, and edit two prompts side by side. |
-| Preset find and replace | Preview literal text replacements across prompt content, then Apply with a “Before Find and Replace” recovery backup. |
+| Preset find and replace | Preview literal text replacements across prompt content, choose specific prompts or replace all, then Apply with a “Before Find and Replace” recovery backup. |
 | Unsynced editing | Work across multiple prompts while keeping changes local until Apply. |
 | Variable sandbox | Try mock values in grouped controls without changing real variable selections. |
 | Reference preset | Browse and copy a second saved preset read-only alongside your editable draft. |

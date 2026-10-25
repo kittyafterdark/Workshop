@@ -3,6 +3,7 @@
 - `bun run verify`: typecheck, unit tests, and synchronized extension bundles.
 - `scripts/check-find-replace.mjs` uses the controlled Workshop fixture at 1440px and 390px, including the canonical safe-top variable, keyboard opening/dismissal, focus return, affected-prompt before/after previews, cancellation, stale-preview refusal, local staging, final Apply, backup failure/retry, the “Before Find and Replace” backup and its original content, unrelated host changes, toolbar selection visibility, teardown and remount.
 - Run with `PLAYWRIGHT_MODULE` pointing to an existing Playwright installation. `PLAYWRIGHT_CHANNEL=msedge` uses installed Edge when bundled Chromium is unavailable.
+- Checklist coverage verifies keyboard selection, Replace (n) counts, clearing all checks, selection retention on refresh, removal of nonmatching selections, and applying only the checked prompts.
 - Matching is literal and case-sensitive, supports multiline text and empty replacements, includes disabled prompts, and excludes locked prompts. Names and variable definitions are unchanged.
 - Browser checks use controlled fixtures; live Loom integration and physical iPhone/PWA behavior were not exercised.
 
