@@ -17,6 +17,12 @@ function fixture() {
   return { store, files, advance: (ms: number) => { now += ms } }
 }
 describe('Preset backups', () => {
+  test('retains find-and-replace backup identity through storage and listing', async () => {
+    const { store } = fixture()
+    const backup = await store.create(preset(), 'before-find-replace', 'user')
+    expect((await store.read(backup.path, 'one', 'user')).kind).toBe('before-find-replace')
+    expect((await store.list('one', 'user'))[0].kind).toBe('before-find-replace')
+  })
   test('uses readable UTC filenames in safe preset-name folders and seven-day host TTL', async () => {
     const { store, files } = fixture()
     const source = preset()

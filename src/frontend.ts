@@ -30,6 +30,7 @@ import {
   type WorkshopVariableIndex,
 } from './workshop-core.js'
 
+import { openFindReplace, FIND_REPLACE_CSS } from './find-replace.js'
 import { ReferenceView, REFERENCE_CSS } from './reference-view.js'
 import { AgentWorkspace, AGENT_CSS, confirmAgentApply } from './agent-workspace.js'
 
@@ -224,7 +225,11 @@ const WORKSHOP_CSS = String.raw`
   background: var(--lumiverse-bg-deep, #101014);
 }
 .workshop-editor-region { grid-column: 1; grid-row: 1; min-width: 0; min-height: 0; overflow: hidden; padding: 12px 16px 16px; }
-.workshop-editor-stage { width: 100%; height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+${FIND_REPLACE_CSS}
+.workshop-editor-region { display: flex; flex-direction: column; }
+.workshop-preset-tools { flex: none; display: flex; gap: 8px; padding-bottom: 10px; }
+.workshop-preset-tools[hidden] { display: none; }
+.workshop-editor-stage { width: 100%; height: 100%; min-width: 0; min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .workshop-editor-stage.dual { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .workshop-editor-slot { min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
 .workshop-editor-slot.primary:not(.dual-slot) { width: min(100%, 1500px); margin: 0 auto; }
@@ -669,6 +674,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       <div class="workshop-resizer left" data-resize="left" aria-hidden="true"></div>
       <main class="workshop-center">
         <section class="workshop-editor-region">
+          <div class="workshop-preset-tools" role="group" aria-label="Preset tools"><button type="button" class="workshop-text-button" data-action="find-replace">Find and replace</button></div>
           <div class="workshop-editor-stage" data-role="editor-stage">
             <div class="workshop-editor-slot primary" data-role="primary-editor-slot">
               <div data-role="editor-mount"></div>
@@ -742,6 +748,8 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   const rightRailButton = root.querySelector<HTMLButtonElement>('[data-action="right"]')!
   const previewResizer = root.querySelector<HTMLElement>('[data-resize="preview"]')!
 
+  let findReplacePending = false
+  let closeFindReplace: (() => void) | null = null
   const issueReview = new WorkshopIssueReview()
   let pendingRestore: PresetRestoreDraft | null = null
   let agentWorkspace: AgentWorkspace | null = null
@@ -975,6 +983,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   }
 
   function renderEditorVisibility(): void {
+    root.querySelector<HTMLElement>('.workshop-preset-tools')!.hidden = Boolean(selectedBlockId || secondaryBlockId || agentWorkspace)
     const dual = Boolean(selectedBlockId && secondaryBlockId)
     editorStage.classList.toggle('dual', dual)
     primarySlot.classList.toggle('dual-slot', dual)
@@ -995,6 +1004,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   }
 
   function renderPrompts(): void {
+    root.querySelector<HTMLElement>('.workshop-preset-tools')!.hidden = Boolean(selectedBlockId || secondaryBlockId || agentWorkspace)
     const activeBlockId = agentWorkspace?.selectedBlockId ?? selectedBlockId
     const previousScrollTop = promptList.scrollTop
     const previousScrollLeft = promptList.scrollLeft
@@ -1362,6 +1372,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
   }
 
   function discardLocalDrafts(): void {
+    findReplacePending = false
     issueReview.clear()
     pendingRestore = null
     agentDraftsPending = false
@@ -1405,7 +1416,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     if (reviewNotice) reviewNotice.textContent = 'Creating pre-Apply backup…'
     try {
       // Persist the exact pre-write snapshot before allowing the host mutation.
-      await requestBackup({ type: 'workshop:backup-create', preset: host.preset, kind: 'before-apply' })
+      await requestBackup({ type: 'workshop:backup-create', preset: host.preset, kind: findReplacePending ? 'before-find-replace' : 'before-apply' })
       if (destroyed) return 'Workshop closed before Apply.'
       ctx.ui.presetEditor.updatePreset((latest: SpindlePresetEditorDraft) => {
         if (presetFingerprint(latest) !== presetFingerprint(host.preset!)) { conflict = 'preset'; return latest }
@@ -1418,6 +1429,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
       })
       if (!applied) return `Prompt ${conflict} changed or disappeared outside Workshop. Your local drafts are retained. Discard drafts to restart from the latest preset.`
       issueReview.clear()
+      findReplacePending = false
       pendingRestore = null
       agentDraftsPending = false
       agentBaseline = agentWorkspace ? presetFingerprint(ctx.ui.presetEditor.getState().preset!) : null
@@ -1644,7 +1656,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
         const title = document.createElement('h3')
         title.textContent = new Date(backup.createdAt).toLocaleString()
         const copy = document.createElement('p')
-        copy.textContent = `${backup.kind === 'manual' ? 'Manual · local work' : backup.kind === 'automatic' ? 'Timed · local work' : 'Before Apply'} · ${backup.blockCount} prompts · expires ${new Date(backup.expiresAt).toLocaleString()}`
+        copy.textContent = `${backup.kind === 'manual' ? 'Manual · local work' : backup.kind === 'automatic' ? 'Timed · local work' : backup.kind === 'before-find-replace' ? 'Before Find and Replace' : 'Before Apply'} · ${backup.blockCount} prompts · expires ${new Date(backup.expiresAt).toLocaleString()}`
         const path = document.createElement('code')
         path.textContent = backup.path
         info.append(title, copy, path)
@@ -1718,6 +1730,23 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     })
   }
   root.querySelector<HTMLButtonElement>('[data-action="backups"]')!.addEventListener('click', openBackups)
+  root.querySelector<HTMLButtonElement>('[data-action="find-replace"]')!.addEventListener('click', () => {
+    if (closeFindReplace || destroyed || applyingDrafts || agentWorkspace) return
+    closeFindReplace = openFindReplace(root, () => localValue().blocks, (changes) => {
+      if (destroyed || applyingDrafts) return 'Workshop is busy. Try again after Apply finishes.'
+      const current = localValue().blocks
+      if (changes.some(change => {
+        const matches = current.filter(block => block.id === change.before.id)
+        return matches.length !== 1 || JSON.stringify(matches[0]) !== JSON.stringify(change.before)
+          || baseBlocks().filter(block => block.id === change.before.id).length !== 1
+      })) return 'A matching prompt changed. Refresh the preview before replacing.'
+      for (const change of changes) issueReview.stage(baseBlocks(), [change.after], change.before.id)
+      findReplacePending = true
+      refreshLocalDrafts()
+      return null
+    }, () => { closeFindReplace = null })
+  })
+  cleanups.push(() => closeFindReplace?.())
 
   function openIssueReview(): void {
     if (destroyed || closeIssueReview) return

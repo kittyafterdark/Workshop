@@ -7,7 +7,7 @@ export interface PresetBackup {
   userId: string
   createdAt: number
   expiresAt: number
-  kind: 'manual' | 'before-apply' | 'automatic'
+  kind: 'manual' | 'before-apply' | 'before-find-replace' | 'automatic'
   preset: SpindlePresetEditorDraft
 }
 export type BackupSummary = Omit<PresetBackup, 'preset' | 'userId' | 'version'> & { name: string; blockCount: number }
@@ -76,7 +76,7 @@ export class PresetBackupStore {
       || typeof value.createdAt !== 'number' || !Number.isFinite(value.createdAt)
       || typeof value.expiresAt !== 'number' || value.expiresAt <= this.now()
       || value.expiresAt !== value.createdAt + BACKUP_TTL_MS
-      || (value.kind !== 'manual' && value.kind !== 'before-apply' && value.kind !== 'automatic')) throw new Error('Backup expired, belongs to another preset, or is invalid.')
+      || (value.kind !== 'manual' && value.kind !== 'before-apply' && value.kind !== 'before-find-replace' && value.kind !== 'automatic')) throw new Error('Backup expired, belongs to another preset, or is invalid.')
     return value as unknown as PresetBackup
   }
   async list(presetId: string, userId: string): Promise<BackupSummary[]> {

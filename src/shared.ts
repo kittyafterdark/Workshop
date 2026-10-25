@@ -25,7 +25,7 @@ export function isWorkshopBackupRequest(value: unknown): value is WorkshopBackup
   if (!value || typeof value !== 'object') return false
   const item = value as Record<string, unknown>
   if (typeof item.requestId !== 'string' || item.requestId.length > 200) return false
-  if (item.type === 'workshop:backup-create') return isPresetSnapshot(item.preset) && (item.kind === 'manual' || item.kind === 'before-apply' || item.kind === 'automatic')
+  if (item.type === 'workshop:backup-create') return isPresetSnapshot(item.preset) && (item.kind === 'manual' || item.kind === 'before-apply' || item.kind === 'before-find-replace' || item.kind === 'automatic')
   if (item.type === 'workshop:backup-settings') return typeof item.presetId === 'string' && !!item.presetId && (item.settings === undefined || isBackupSettings(item.settings))
   return typeof item.presetId === 'string' && (item.type === 'workshop:backup-list'
     || (item.type === 'workshop:backup-read' && typeof item.path === 'string'))

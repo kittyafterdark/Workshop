@@ -533,7 +533,7 @@ class PresetBackupStore {
     if (!managedPath(path))
       throw new Error("Invalid backup path.");
     const value = JSON.parse(await this.disk.read(path));
-    if (!record(value) || value.version !== 1 || value.path !== path || value.userId !== userId || !isPresetSnapshot(value.preset) || value.preset.id !== presetId || typeof value.createdAt !== "number" || !Number.isFinite(value.createdAt) || typeof value.expiresAt !== "number" || value.expiresAt <= this.now() || value.expiresAt !== value.createdAt + BACKUP_TTL_MS || value.kind !== "manual" && value.kind !== "before-apply" && value.kind !== "automatic")
+    if (!record(value) || value.version !== 1 || value.path !== path || value.userId !== userId || !isPresetSnapshot(value.preset) || value.preset.id !== presetId || typeof value.createdAt !== "number" || !Number.isFinite(value.createdAt) || typeof value.expiresAt !== "number" || value.expiresAt <= this.now() || value.expiresAt !== value.createdAt + BACKUP_TTL_MS || value.kind !== "manual" && value.kind !== "before-apply" && value.kind !== "before-find-replace" && value.kind !== "automatic")
       throw new Error("Backup expired, belongs to another preset, or is invalid.");
     return value;
   }
@@ -778,7 +778,7 @@ function isWorkshopBackupRequest(value) {
   if (typeof item.requestId !== "string" || item.requestId.length > 200)
     return false;
   if (item.type === "workshop:backup-create")
-    return isPresetSnapshot(item.preset) && (item.kind === "manual" || item.kind === "before-apply" || item.kind === "automatic");
+    return isPresetSnapshot(item.preset) && (item.kind === "manual" || item.kind === "before-apply" || item.kind === "before-find-replace" || item.kind === "automatic");
   if (item.type === "workshop:backup-settings")
     return typeof item.presetId === "string" && !!item.presetId && (item.settings === undefined || isBackupSettings(item.settings));
   return typeof item.presetId === "string" && (item.type === "workshop:backup-list" || item.type === "workshop:backup-read" && typeof item.path === "string");
