@@ -6512,6 +6512,7 @@ ${PROMPT_MANAGER_CSS}
 }
 `;
 var ICONS = {
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><path d="M12 5v14M5 12h14"/></svg>',
   workshop: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16"/><path d="M6 20V8l6-4 6 4v12"/><path d="M9 20v-6h6v6"/><path d="M8 10h.01M16 10h.01"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>',
   left: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>',
@@ -6687,7 +6688,7 @@ function createWorkshopSession(ctx, onClosed) {
           <span class="workshop-rail-title">PROMPTS</span>
           <span class="workshop-count" data-role="prompt-count"></span>
           <span class="workshop-rail-tools">
-            <button class="workshop-mini-button" type="button" data-action="manage-prompts" aria-label="Manage prompts" title="Manage prompts">+</button>
+            <button class="workshop-mini-button" type="button" data-action="manage-prompts" aria-label="Manage prompts" title="Manage prompts">${ICONS.plus}</button>
             <button class="workshop-mini-button" type="button" data-action="toggle-categories" aria-label="Collapse all categories" title="Collapse all categories">${ICONS.right}</button>
           </span>
           <button class="workshop-mini-button workshop-rail-collapse" type="button" data-action="left" aria-label="Collapse prompts">${ICONS.left}</button>

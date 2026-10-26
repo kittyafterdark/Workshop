@@ -41,7 +41,17 @@ try {
       await dialog.getByRole('button', { name: 'Add', exact: true }).click()
     }
     const closeRails = async () => { if (width < 900 && await page.locator('.workshop-shell').evaluate(el => el.classList.contains('mobile-left-open'))) await page.keyboard.press('Escape') }
-    await load(); await open()
+    await load()
+    if (width < 900) await page.getByRole('button', { name: 'Open prompts', exact: true }).click()
+    const manageButton = page.getByRole('button', { name: 'Manage prompts', exact: true })
+    await manageButton.scrollIntoViewIfNeeded()
+    const buttonBounds = await manageButton.boundingBox()
+    const iconBounds = await manageButton.locator('svg').boundingBox()
+    assert.ok(Math.abs(buttonBounds.x + buttonBounds.width / 2 - iconBounds.x - iconBounds.width / 2) <= 0.5)
+    assert.ok(Math.abs(buttonBounds.y + buttonBounds.height / 2 - iconBounds.y - iconBounds.height / 2) <= 0.5)
+    assert.equal(await manageButton.locator('svg').getAttribute('aria-hidden'), 'true')
+    if (process.env.WORKSHOP_SCREENSHOT_DIR) await manageButton.screenshot({ path: `${process.env.WORKSHOP_SCREENSHOT_DIR}/manage-plus-${width}.png` })
+    await open()
     assert.equal(await dialog.getByRole('searchbox').evaluate(el => el === document.activeElement), true)
     const bounds = await dialog.boundingBox()
     assert.ok(bounds.y >= (width < 900 ? 54 : 0))
