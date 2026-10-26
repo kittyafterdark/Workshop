@@ -100,4 +100,31 @@ describe('manual prompt structure drafts', () => {
     draft.add('prompt', 'Rebuilt', null)
     expect(draft.snapshot()).toHaveLength(1)
   })
+  test('bulk moves preserve preset order across mixed source categories and the destination', () => {
+    const source = fixture(), draft = new PromptManagerDraft(source)
+    draft.moveManyTo(['b2', 'a1', 'root'], 'B')
+    expect(draft.snapshot().map(b => b.id)).toEqual(['A', 'a2', 'loose', 'B', 'b1', 'root', 'a1', 'b2'])
+    expect(membership(draft.snapshot())).toEqual({ root: 'B', a1: 'B', a2: 'A', loose: null, b1: 'B', b2: 'B' })
+    draft.moveManyTo(['b2', 'root', 'a1'], null)
+    expect(draft.snapshot().map(b => b.id)).toEqual(['A', 'a2', 'loose', 'B', 'b1', 'root', 'a1', 'b2'])
+    expect(membership(draft.snapshot())).toEqual({ root: null, a1: null, a2: 'A', loose: null, b1: 'B', b2: null })
+    expect(source).toEqual(fixture())
+  })
+  test('moving a root breakout into its preceding category does not absorb inherited root neighbours', () => {
+    const draft = new PromptManagerDraft([block('A', { marker: 'category' }), block('a', { group: 'A' }), block('root'), block('legacy', { group: undefined })])
+    draft.moveManyTo(['root'], 'A')
+    expect(draft.snapshot().map(b => b.id)).toEqual(['A', 'a', 'root', 'legacy'])
+    expect(membership(draft.snapshot())).toEqual({ a: 'A', root: 'A', legacy: null })
+  })
+  test('bulk validation is atomic for a locked member, category, duplicate ID or invalid destination', () => {
+    const draft = new PromptManagerDraft(fixture().map(b => b.id === 'b2' ? { ...b, isLocked: true } : b))
+    const original = draft.snapshot()
+    for (const operation of [() => draft.moveManyTo(['a1', 'b2'], 'B'), () => draft.moveManyTo(['a1', 'A'], 'B'),
+      () => draft.moveManyTo(['a1', 'a1'], 'B'), () => draft.moveManyTo(['a1', 'missing'], 'B'),
+      () => draft.moveManyTo(['a1', 'root'], 'missing')]) {
+      expect(operation).toThrow(); expect(draft.snapshot()).toEqual(original)
+    }
+    draft.moveManyTo([], null)
+    expect(draft.snapshot()).toEqual(original)
+  })
 })

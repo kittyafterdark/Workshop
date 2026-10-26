@@ -708,7 +708,7 @@ class PromptManagerDraft {
       throw Error("The target category no longer exists.");
     return blocks.indexOf(group.children.at(-1) ?? group.categoryBlock) + 1;
   }
-  commit(next, expected) {
+  reconcile(next, expected) {
     const actual = memberships(next);
     for (const block of next) {
       if (block.marker !== "category" && actual.get(block.id) !== expected.get(block.id)) {
@@ -718,6 +718,9 @@ class PromptManagerDraft {
     const result = memberships(next);
     if (next.some((block) => block.marker !== "category" && result.get(block.id) !== expected.get(block.id)))
       throw Error("That placement would split a category. Choose a category boundary.");
+  }
+  commit(next, expected) {
+    this.reconcile(next, expected);
     this.blocks = next;
   }
   add(kind, name, categoryId, marker) {
@@ -753,13 +756,25 @@ class PromptManagerDraft {
     return block.id;
   }
   moveTo(id, categoryId) {
-    const block = this.editable(id);
-    if (block.marker === "category")
-      throw Error("Move categories using the list or Move up/down.");
+    this.moveManyTo([id], categoryId);
+  }
+  moveManyTo(ids, categoryId) {
+    if (!ids.length)
+      return;
+    if (new Set(ids).size !== ids.length)
+      throw Error("Select each prompt only once.");
+    for (const id of ids) {
+      if (this.editable(id).marker === "category")
+        throw Error("Move categories using the list or Move up/down.");
+    }
     this.category(categoryId);
-    const next = this.snapshot().filter((block) => block.id !== id), expected = memberships(this.blocks);
-    expected.set(id, categoryId);
-    next.splice(this.end(next, categoryId), 0, { ...structuredClone(block), group: categoryId });
+    const selected = new Set(ids), expected = memberships(this.blocks);
+    const next = this.snapshot().filter((block) => !selected.has(block.id));
+    this.reconcile(next, expected);
+    const moving = this.snapshot().filter((block) => selected.has(block.id)).map((block) => ({ ...block, group: categoryId }));
+    for (const id of ids)
+      expected.set(id, categoryId);
+    next.splice(this.end(next, categoryId), 0, ...moving);
     this.commit(next, expected);
   }
   moveRelative(id, targetId, after) {
@@ -823,7 +838,7 @@ class PromptManagerDraft {
 // src/prompt-manager.ts
 var PROMPT_MANAGER_CSS = `
 .workshop-manage { box-sizing:border-box; width:min(900px,calc(100vw - 24px)); height: min(780px,calc(var(--app-interactive-viewport-height,100dvh) - 24px)); max-height:calc(var(--app-interactive-viewport-height,100dvh) - 24px); top:var(--app-interactive-safe-top,0px); margin:auto; padding:18px; border:1px solid var(--lumiverse-border,#444); border-radius:12px; background:var(--lumiverse-bg,#17171e); color:var(--lumiverse-text,#eee); overflow:auto; }
-.workshop-manage[open] { display:flex; flex-direction:column; gap:12px; }
+.workshop-manage[open] { display:flex; flex-direction:column; gap:8px; }
 .workshop-manage::backdrop { background:rgba(0,0,0,.65); }
 .workshop-manage * { box-sizing:border-box; }
 .workshop-manage h2 { margin:0; font-size:18px; }
@@ -831,6 +846,12 @@ var PROMPT_MANAGER_CSS = `
 .workshop-manage header,.workshop-manage footer,.workshop-manage-tools { display:flex; gap:8px; align-items:center; flex-wrap:wrap; flex-shrink:0; }
 .workshop-manage header { justify-content:space-between; }
 .workshop-manage footer { justify-content:flex-end; }
+.workshop-manage [aria-label="Add items"] { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+.workshop-manage p:empty { display:none; }
+.workshop-manage-search-row { display:flex; align-items:center; gap:10px; flex-shrink:0; }
+.workshop-manage-search-row .workshop-manage-search { flex:1; width:0; }
+.workshop-manage .workshop-manage-check { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+.workshop-manage input[type=checkbox] { width:16px; height:16px; min-height:0; flex-shrink:0; padding:0; margin:0; accent-color:var(--lumiverse-primary,#a6a6ff); }
 .workshop-manage button,.workshop-manage input,.workshop-manage select { font:inherit; font-size:12px; color:inherit; border:1px solid var(--lumiverse-border,#444); border-radius:6px; background:var(--lumiverse-bg-deep,#101014); padding:8px 10px; min-height:36px; min-width:0; }
 .workshop-manage button { cursor:pointer; }
 .workshop-manage button:disabled { opacity:.45; cursor:default; }
@@ -843,7 +864,7 @@ var PROMPT_MANAGER_CSS = `
 .workshop-manage form[hidden],.workshop-manage [hidden] { display:none!important; }
 .workshop-manage-search { width:100%; flex-shrink:0; }
 .workshop-manage-list { padding:0; margin:0; list-style:none; overflow:auto; flex:1; min-height:80px; overscroll-behavior:contain; border:1px solid var(--lumiverse-border,#444); border-radius:8px; }
-.workshop-manage-row { display:flex; align-items:center; gap:6px; padding:3px 8px; border-top:2px solid transparent; border-bottom:2px solid transparent; }
+.workshop-manage-row { display:flex; align-items:center; gap:6px; padding:0 6px; border-top:2px solid transparent; border-bottom:2px solid transparent; }
 .workshop-manage-row.child { padding-left:30px; }
 .workshop-manage-row.category { background:var(--lumiverse-fill-subtle,rgba(255,255,255,.05)); }
 .workshop-manage-row.selected { background:var(--lumiverse-primary-010,rgba(130,130,255,.12)); }
@@ -853,14 +874,15 @@ var PROMPT_MANAGER_CSS = `
 .workshop-manage-select span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .workshop-manage-select small { font-size:10px; color:var(--lumiverse-text-muted,#aaa); flex-shrink:0; }
 .workshop-manage .workshop-manage-grip { cursor:grab; border-color:transparent; background:transparent; touch-action:pan-y; }
-.workshop-manage-root { padding:10px; text-align:center; font-size:12px; color:var(--lumiverse-text-muted,#aaa); border:1px dashed var(--lumiverse-border,#444); border-radius:6px; }
+.workshop-manage-root { padding:6px; text-align:center; font-size:11px; color:var(--lumiverse-text-muted,#aaa); border:1px dashed var(--lumiverse-border,#444); border-radius:6px; }
 .workshop-manage-root.drop-after { border-color:var(--lumiverse-primary,#a6a6ff); }
-.workshop-manage-selection { padding:10px; border:1px solid var(--lumiverse-border,#444); border-radius:8px; display:grid; gap:8px; flex-shrink:0; }
+.workshop-manage-selection { padding:8px 0 0; border-top:1px solid var(--lumiverse-border,#444); display:grid; gap:6px; flex-shrink:0; }
 .workshop-manage-selection strong { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.workshop-manage-selection select { max-width:240px; }
+.workshop-manage-selection [data-manage=move-label] { display:flex; align-items:center; gap:8px; flex:1; white-space:nowrap; }
+.workshop-manage-selection select { flex:1; width:0; }
 .workshop-manage-confirm { display:grid; gap:8px; border-top:1px solid var(--lumiverse-border,#444); padding-top:10px; }
 .workshop-manage [role=alert] { color:var(--lumiverse-warning,#e8b04c); }
-@media(max-width:600px) { .workshop-manage { padding:12px; gap:8px; } .workshop-manage[open] { gap:8px; } .workshop-manage button { min-height:44px; } .workshop-manage-row { padding-inline:3px; } .workshop-manage-row.child { padding-left:16px; } .workshop-manage-selection .workshop-manage-tools { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .workshop-manage [data-manage=move-label] { grid-column:1/-1; } .workshop-manage-selection select { width:100%; max-width:none; } .workshop-manage form { max-height:35vh; overflow:auto; } }
+@media(max-width:600px) { .workshop-manage { padding:12px; gap:8px; } .workshop-manage[open] { gap:8px; } .workshop-manage button { min-height:44px; } .workshop-manage-row { padding-inline:3px; } .workshop-manage-row.child { padding-left:16px; } .workshop-manage-selection .workshop-manage-tools { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); } .workshop-manage [data-manage=move-label] { grid-column:1/-1; } .workshop-manage-selection select { width:0; } .workshop-manage-search-row { flex-wrap:wrap; gap:6px 10px; } .workshop-manage-search-row .workshop-manage-search { flex-basis:100%; width:100%; } .workshop-manage-search-row [data-manage=clear-selection] { margin-left:auto; } .workshop-manage form { max-height:35vh; overflow:auto; } }
 `;
 function openPromptManager(root, blocks, stage, onClose) {
   const model = new PromptManagerDraft(blocks);
@@ -871,10 +893,10 @@ function openPromptManager(root, blocks, stage, onClose) {
   const headingId = `workshop-manage-${crypto.randomUUID()}`;
   dialog.setAttribute("aria-labelledby", headingId);
   dialog.innerHTML = `<header><h2>Manage prompts</h2><span data-manage="count"></span></header>
-    <p>Add, organize, or delete items. Drag by the handle, or select a title and use the move controls. Done keeps changes local until Apply in Workshop.</p>
+    <p>Add, organize, or delete items. Drag by the handle, select a title to organize it, or check multiple prompts to move them together. Done keeps changes local until Apply in Workshop.</p>
     <div class="workshop-manage-tools" role="group" aria-label="Add items"><button type="button" data-add="prompt">Add prompt</button><button type="button" data-add="marker">Add marker</button><button type="button" data-add="category">Add category</button></div>
     <form hidden><label>Title<input name="title" required maxlength="500" autocomplete="off"></label><label data-manage="marker-label" hidden>Marker type<select name="marker"></select></label><label data-manage="category-label">Category<select name="category"></select></label><button type="submit" class="primary">Add</button><button type="button" data-manage="cancel-add">Cancel add</button></form>
-    <input type="search" class="workshop-manage-search" aria-label="Search prompt titles" placeholder="Search titles…">
+    <div class="workshop-manage-search-row"><input type="search" class="workshop-manage-search" aria-label="Search prompt titles" placeholder="Search titles…"><label class="workshop-manage-check"><input type="checkbox" data-manage="select-visible">Select visible prompts</label><button type="button" data-manage="clear-selection" disabled>Clear selection</button></div>
     <ul class="workshop-manage-list" aria-label="Prompt order"></ul>
     <div class="workshop-manage-root" data-manage="root-drop">Ungrouped · drop here to move to the end</div>
     <section class="workshop-manage-selection" aria-label="Selected item" hidden><strong data-manage="selected-title"></strong><div class="workshop-manage-tools"><button type="button" data-manage="up">Move up</button><button type="button" data-manage="down">Move down</button><label data-manage="move-label">Move to<select data-manage="destination"></select></label><button type="button" data-manage="move">Move</button><button type="button" class="danger" data-manage="delete">Delete</button></div>
@@ -896,6 +918,8 @@ function openPromptManager(root, blocks, stage, onClose) {
   const parent = form.elements.namedItem("category");
   let kind = "prompt";
   let selectedId = null, createdId = null, dragId = null;
+  const checked = new Set;
+  let visibleSelectable = [];
   let closed = false;
   const selected = () => model.snapshot().find((block) => block.id === selectedId);
   const finish = () => {
@@ -931,10 +955,21 @@ function openPromptManager(root, blocks, stage, onClose) {
   };
   const renderSelection = () => {
     const block = selected();
-    el("selected-title").textContent = block?.name || "(Untitled item)";
-    dialog.querySelector(".workshop-manage-selection").hidden = !block || !form.hidden;
+    el("selected-title").textContent = checked.size ? `${checked.size} prompts selected` : block?.name || "(Untitled item)";
+    dialog.querySelector(".workshop-manage-selection").hidden = !block && !checked.size || !form.hidden;
     confirmation.hidden = true;
     button("delete").setAttribute("aria-expanded", "false");
+    const bulk = checked.size > 0;
+    for (const name of ["up", "down", "delete"])
+      button(name).hidden = bulk;
+    button("move").textContent = bulk ? "Move selected" : "Move";
+    if (bulk) {
+      el("move-label").hidden = button("move").hidden = false;
+      button("move").disabled = el("destination").disabled = false;
+      const parents = new Set(computePromptGroups(model.snapshot()).flatMap((group) => group.children.filter((child) => checked.has(child.id)).map(() => group.categoryBlock?.id ?? "")));
+      categories(el("destination"), parents.size === 1 ? [...parents][0] : "");
+      return;
+    }
     if (!block)
       return;
     const group = computePromptGroups(model.snapshot()).find((group) => group.children.some((child) => child.id === block.id));
@@ -955,6 +990,10 @@ function openPromptManager(root, blocks, stage, onClose) {
     const all = model.snapshot(), query = search.value.trim().toLowerCase();
     const groups = computePromptGroups(all);
     list.replaceChildren();
+    for (const id of checked)
+      if (!all.some((block) => block.id === id))
+        checked.delete(id);
+    visibleSelectable = [];
     let count = 0;
     for (const group of groups) {
       const categoryMatches = group.categoryBlock?.name.toLowerCase().includes(query);
@@ -965,14 +1004,14 @@ function openPromptManager(root, blocks, stage, onClose) {
         count++;
         const row = document.createElement("li");
         const child = block.marker !== "category" && Boolean(group.categoryBlock);
-        row.className = `workshop-manage-row${child ? " child" : ""}${block.marker === "category" ? " category" : ""}${selectedId === block.id ? " selected" : ""}`;
+        row.className = `workshop-manage-row${child ? " child" : ""}${block.marker === "category" ? " category" : ""}${selectedId === block.id || checked.has(block.id) ? " selected" : ""}`;
         row.dataset.manageId = block.id;
         const grip = document.createElement("button");
         grip.type = "button";
         grip.className = "workshop-manage-grip";
         grip.textContent = "⠿";
         grip.setAttribute("aria-label", `Reorder ${block.name || "untitled item"}`);
-        grip.disabled = structureProtected(block) || Boolean(child && group.categoryBlock && structureProtected(group.categoryBlock)) || Boolean(query);
+        grip.disabled = structureProtected(block) || Boolean(child && group.categoryBlock && structureProtected(group.categoryBlock)) || Boolean(query) || checked.size > 0;
         grip.draggable = !grip.disabled;
         grip.addEventListener("dragstart", (event) => {
           dragId = block.id;
@@ -1033,6 +1072,27 @@ function openPromptManager(root, blocks, stage, onClose) {
           render();
           list.querySelector(`[data-manage-id="${CSS.escape(block.id)}"] .workshop-manage-select`)?.focus({ preventScroll: true });
         });
+        if (block.marker !== "category") {
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.dataset.checkId = block.id;
+          const suffix = duplicate ? `, item ${all.findIndex((item) => item.id === block.id) + 1}` : "";
+          checkbox.setAttribute("aria-label", `Include ${block.name || "untitled prompt"}${suffix} in move`);
+          checkbox.checked = checked.has(block.id);
+          checkbox.disabled = structureProtected(block) || Boolean(group.categoryBlock && structureProtected(group.categoryBlock));
+          if (!checkbox.disabled)
+            visibleSelectable.push(block.id);
+          checkbox.addEventListener("change", () => {
+            if (checkbox.checked)
+              checked.add(block.id);
+            else
+              checked.delete(block.id);
+            selectedId = block.id;
+            render();
+            list.querySelector(`[data-check-id="${CSS.escape(block.id)}"]`)?.focus({ preventScroll: true });
+          });
+          row.append(checkbox);
+        }
         row.append(grip, select);
         list.append(row);
       }
@@ -1043,6 +1103,12 @@ function openPromptManager(root, blocks, stage, onClose) {
       empty.textContent = query ? "No matching titles." : "No prompts yet. Add a prompt, marker, or category.";
       list.append(empty);
     }
+    const selectVisible = el("select-visible");
+    const visibleChecked = visibleSelectable.filter((id) => checked.has(id)).length;
+    selectVisible.disabled = !visibleSelectable.length;
+    selectVisible.checked = visibleChecked > 0 && visibleChecked === visibleSelectable.length;
+    selectVisible.indeterminate = visibleChecked > 0 && visibleChecked < visibleSelectable.length;
+    button("clear-selection").disabled = !checked.size;
     el("count").textContent = `${all.length} items`;
     el("root-drop").hidden = Boolean(query);
     list.scrollTop = scroll;
@@ -1093,6 +1159,24 @@ function openPromptManager(root, blocks, stage, onClose) {
     }
   });
   search.addEventListener("input", render);
+  el("select-visible").addEventListener("change", (event) => {
+    const include = event.target.checked;
+    for (const id of visibleSelectable) {
+      if (include)
+        checked.add(id);
+      else
+        checked.delete(id);
+    }
+    render();
+  });
+  button("clear-selection").addEventListener("click", () => {
+    checked.clear();
+    render();
+    if (el("select-visible").disabled)
+      search.focus();
+    else
+      el("select-visible").focus();
+  });
   for (const [name, direction] of [["up", -1], ["down", 1]])
     button(name).addEventListener("click", () => {
       run(() => {
@@ -1108,10 +1192,10 @@ function openPromptManager(root, blocks, stage, onClose) {
       }
       list.querySelector(`[data-manage-id="${CSS.escape(selectedId)}"]`)?.scrollIntoView({ block: "nearest" });
     });
-  button("move").addEventListener("click", () => run(() => {
-    if (selectedId)
-      model.moveTo(selectedId, el("destination").value || null);
-  }, "Item moved. Changes are local."));
+  button("move").addEventListener("click", () => {
+    const ids = checked.size ? [...checked] : selectedId ? [selectedId] : [];
+    run(() => model.moveManyTo(ids, el("destination").value || null), `${ids.length} prompt${ids.length === 1 ? "" : "s"} moved. Changes are local.`);
+  });
   button("delete").addEventListener("click", () => {
     const block = selected();
     if (!block)

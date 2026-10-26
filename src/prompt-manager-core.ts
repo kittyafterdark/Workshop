@@ -47,7 +47,7 @@ export class PromptManagerDraft {
     if (!group) throw Error('The target category no longer exists.')
     return blocks.indexOf(group.children.at(-1) ?? group.categoryBlock!) + 1
   }
-  private commit(next: PromptBlockDTO[], expected: Map<string, string | null>): void {
+  private reconcile(next: PromptBlockDTO[], expected: Map<string, string | null>): void {
     // Legacy blocks can inherit their category. Only make a boundary explicit when
     // this operation would otherwise change an unrelated block's membership.
     const actual = memberships(next)
@@ -58,6 +58,9 @@ export class PromptManagerDraft {
     }
     const result = memberships(next)
     if (next.some(block => block.marker !== 'category' && result.get(block.id) !== expected.get(block.id))) throw Error('That placement would split a category. Choose a category boundary.')
+  }
+  private commit(next: PromptBlockDTO[], expected: Map<string, string | null>): void {
+    this.reconcile(next, expected)
     this.blocks = next
   }
   add(kind: 'prompt' | 'category' | 'marker', name: string, categoryId: string | null, marker?: string): string {
@@ -76,12 +79,23 @@ export class PromptManagerDraft {
     return block.id
   }
   moveTo(id: string, categoryId: string | null): void {
-    const block = this.editable(id)
-    if (block.marker === 'category') throw Error('Move categories using the list or Move up/down.')
+    this.moveManyTo([id], categoryId)
+  }
+  moveManyTo(ids: readonly string[], categoryId: string | null): void {
+    if (!ids.length) return
+    if (new Set(ids).size !== ids.length) throw Error('Select each prompt only once.')
+    for (const id of ids) {
+      if (this.editable(id).marker === 'category') throw Error('Move categories using the list or Move up/down.')
+    }
     this.category(categoryId)
-    const next = this.snapshot().filter(block => block.id !== id), expected = memberships(this.blocks)
-    expected.set(id, categoryId)
-    next.splice(this.end(next, categoryId), 0, { ...structuredClone(block), group: categoryId })
+    const selected = new Set(ids), expected = memberships(this.blocks)
+    const next = this.snapshot().filter(block => !selected.has(block.id))
+    // Removing an explicit root breakout must not absorb inherited root items
+    // into the destination category before its insertion boundary is computed.
+    this.reconcile(next, expected)
+    const moving = this.snapshot().filter(block => selected.has(block.id)).map(block => ({ ...block, group: categoryId }))
+    for (const id of ids) expected.set(id, categoryId)
+    next.splice(this.end(next, categoryId), 0, ...moving)
     this.commit(next, expected)
   }
   moveRelative(id: string, targetId: string, after: boolean): void {
