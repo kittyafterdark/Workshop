@@ -1,3 +1,4 @@
+import { uuid } from './uuid.js'
 import type { PromptBlockDTO } from 'lumiverse-spindle-types'
 import { computePromptGroups } from './workshop-core.js'
 
@@ -69,7 +70,7 @@ export class PromptManagerDraft {
     this.category(categoryId)
     if (kind === 'marker' && !PROMPT_MARKERS.some(([id]) => id === marker)) throw Error('Choose a supported marker.')
     const type = kind === 'category' ? 'category' : kind === 'marker' ? marker! : null
-    const block: PromptBlockDTO = { id: crypto.randomUUID(), name: name.trim(), content: '', role: 'system',
+    const block: PromptBlockDTO = { id: uuid(), name: name.trim(), content: '', role: 'system',
       enabled: true, position: 'pre_history', depth: 0, marker: type, isLocked: structural.has(type ?? ''),
       color: null, injectionTrigger: [], characterTagTrigger: [], group: categoryId, categoryMode: null }
     const next = this.snapshot(), expected = memberships(this.blocks)

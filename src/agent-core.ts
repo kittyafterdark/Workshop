@@ -1,3 +1,4 @@
+import { localUuid } from './uuid.js'
 import type { PromptBlockDTO, PromptVariableValuesDTO, SpindlePresetEditorDraft, ToolSchemaDTO } from 'lumiverse-spindle-types'
 import { buildReviewIssues, buildVariableIndex, computePromptGroups } from './workshop-core.js'
 
@@ -36,7 +37,7 @@ export class AgentDraft {
   private readonly macros: MacroDoc[] | null
   constructor(preset: SpindlePresetEditorDraft, private readonly context: AgentContext, catalogue?: unknown) { this.value = structuredClone(preset); this.macros = macroCatalogue(catalogue) }
   snapshot(): SpindlePresetEditorDraft { return structuredClone(this.value) }
-  execute(name: string, args: Record<string, unknown>): unknown {
+  execute(name: string, args: Record<string, unknown>, newBlockId?: string): unknown {
     const definition = AGENT_TOOLS.find(t => t.name === name)
     if (!definition) throw Error('Unsupported tool. Saving, applying, external files and arbitrary MCP calls are unavailable.')
     if (args.path !== undefined && args.path !== DRAFT_PATH) throw Error(`Only ${DRAFT_PATH} is available.`)
@@ -90,7 +91,7 @@ export class AgentDraft {
       if (args.before && args.after) throw Error('Choose before or after, not both.')
       if (name === 'preset_insert_block') {
         if (!text('name').trim() || next.blocks.some(b => b.name === text('name'))) throw Error('Choose a nonempty unique name.')
-        block = { id: crypto.randomUUID(), name: text('name'), content: text('content'), role: (args.role ?? 'system') as PromptBlockDTO['role'], enabled: (args.enabled ?? true) as boolean, position: (args.position ?? 'pre_history') as PromptBlockDTO['position'], depth: 0, marker: null, isLocked: false, color: null, injectionTrigger: [], group: null }
+        block = { id: newBlockId ?? localUuid(), name: text('name'), content: text('content'), role: (args.role ?? 'system') as PromptBlockDTO['role'], enabled: (args.enabled ?? true) as boolean, position: (args.position ?? 'pre_history') as PromptBlockDTO['position'], depth: 0, marker: null, isLocked: false, color: null, injectionTrigger: [], group: null }
       } else {
         if (!args.before && !args.after && args.category === undefined) throw Error('A move needs before, after or category.')
         if (computePromptGroups(this.value.blocks).find(group => group.children.some(child => child.id === block!.id))?.categoryBlock?.isLocked) throw Error('Locked categories cannot be regrouped.')

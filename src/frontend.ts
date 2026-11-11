@@ -1,3 +1,4 @@
+import { bindFrontendUuid, uuid } from './uuid.js'
 import type {
   AssemblyBreakdownEntryDTO,
   LlmMessageDTO,
@@ -1616,7 +1617,7 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
     const surface = panel.root
     const restoreChrome = installFullscreenModalChrome(surface)
     surface.className = 'workshop-review workshop-backups'
-    const settingsId = `backup-settings-${crypto.randomUUID()}`
+    const settingsId = `backup-settings-${uuid()}`
     surface.innerHTML = `<header class="workshop-review-header"><div class="workshop-review-brand">${ICONS.backups}<div><h2>Preset backups</h2><span class="workshop-review-caption"></span></div></div><button type="button" class="workshop-review-button" data-backup="close">${ICONS.close}<span>Close</span></button></header><section class="workshop-review-issue" aria-label="Backup retention"><h3>One week of recovery</h3><p>Snapshots before Apply, manual snapshots, and optional timed backups of local work. Restore stays local until Apply.</p><p>Includes prompt blocks, variable definitions and preset settings. Lumi keeps live variable selections; preview mocks are excluded.</p><p>Stored in Workshop’s transient storage under storage/&lt;preset-name&gt;/backups/. Filenames use UTC date and time. Backups expire after seven days, including across restarts. A count limit can remove older backups sooner.</p><p data-backup="timing"></p></section><div class="workshop-backup-list"><form class="workshop-backup-settings" id="${settingsId}" aria-label="Backup settings" hidden><h3>Backup settings</h3><label class="workshop-backup-switch"><input type="checkbox" role="switch" data-backup="automatic">Automatic timed backups</label><label>Interval in minutes<input type="number" data-backup="interval" min="1" max="1440" step="1" required></label><label>Maximum backups to keep<input type="number" data-backup="keep" min="0" max="10000" step="1" required></label><p>Per preset. Timed backups run while Workshop is open, include unsynced edits, and skip unchanged snapshots. Closing Workshop stops the timer. Use 0 for no count limit. Saving a smaller limit removes the oldest backups now, including manual and pre-Apply snapshots, across this preset’s previous names. Seven-day expiry still applies.</p><div class="workshop-review-controls"><button type="submit" class="workshop-review-button primary" data-backup="save-settings">Save settings</button><button type="button" class="workshop-review-button" data-backup="cancel-settings">Cancel settings</button></div></form><div data-backup="list" aria-label="Available backups"></div></div><footer class="workshop-review-footer"><div class="workshop-review-controls"><button type="button" class="workshop-review-button primary" data-backup="create">${ICONS.backups}<span>Create backup</span></button><button type="button" class="workshop-review-button" data-backup="refresh">${ICONS.refresh}<span>Refresh</span></button><button type="button" class="workshop-review-button" data-backup="settings" aria-controls="${settingsId}" aria-expanded="false">Settings</button></div><span class="workshop-review-notice" data-backup="notice" role="status"></span></footer>`
     surface.querySelector('.workshop-review-caption')!.textContent = latestPresetName
     const list = surface.querySelector<HTMLElement>('[data-backup="list"]')!
@@ -2866,6 +2867,20 @@ function createWorkshopSession(ctx: SpindleFrontendContext, onClosed: () => void
 }
 
 export function setup(ctx: SpindleFrontendContext): () => void {
+  const unbindUuid = bindFrontendUuid(ctx)
+  try {
+    const teardown = setupWorkshop(ctx)
+    return () => {
+      unbindUuid()
+      teardown()
+    }
+  } catch (error) {
+    unbindUuid()
+    throw error
+  }
+}
+
+function setupWorkshop(ctx: SpindleFrontendContext): () => void {
   const removeStyle = ctx.dom.addStyle(WORKSHOP_CSS + AGENT_CSS + REFERENCE_CSS)
 
   // Use the canonical host mount point rather than the registered toolbar-item

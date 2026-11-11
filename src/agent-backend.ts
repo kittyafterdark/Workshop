@@ -1,3 +1,4 @@
+import { backendUuid } from './uuid.js'
 import type { GenerationRequestDTO, LlmMessageDTO, SpindleAPI, SpindlePresetEditorDraft } from 'lumiverse-spindle-types'
 import { AGENT_TOOLS, AgentDraft, COMPATIBLE_TOOLS, type AgentContext } from './agent-core.js'
 import { MACRO_GUIDANCE } from './agent-macros.js'
@@ -107,16 +108,22 @@ export class WorkshopAgentCoordinator {
         if (!response.tool_calls?.length) { emit({ type: 'workshop:agent-result', content: content || 'Finished without a text response.', preset: draft.snapshot() }); return true }
         if (!Array.isArray(response.tool_calls) || response.tool_calls.length + calls > 32) throw Error('Tool limit reached. No generated changes were staged.')
         messages.push({ role: 'assistant', content: [...(content ? [{ type: 'text' as const, text: content }] : []), ...response.tool_calls.map(t => ({ type: 'tool_use' as const, id: t.call_id, name: t.name, input: t.args, ...(t.thought_signature ? { thought_signature: t.thought_signature } : {}) }))], reasoning_content: response.reasoning, thinking_blocks: response.thinking_blocks, reasoning_details: response.reasoning_details })
-        const results = response.tool_calls.map(t => {
+        const results: Array<{ type: 'tool_result'; tool_use_id: string; content: string; is_error: boolean }> = []
+        for (const t of response.tool_calls) {
           calls++
           let result: unknown, failed = false
           try {
             if (!t.args || typeof t.args !== 'object' || Array.isArray(t.args)) throw Error('Arguments must be an object.')
-            result = draft.execute(t.name, t.args)
-          } catch (error) { failed = true; result = { error: error instanceof Error ? error.message : 'Tool failed.' } }
+            const id = t.name === 'preset_insert_block' ? await Promise.race([backendUuid(this.api), aborted]) : undefined
+            result = draft.execute(t.name, t.args, id)
+          } catch (error) {
+            if (abort.signal.aborted) throw error
+            failed = true
+            result = { error: error instanceof Error ? error.message : 'Tool failed.' }
+          }
           emit({ type: 'workshop:agent-progress', content: `${failed ? 'Rejected' : 'Completed'} ${t.name}${typeof t.args?.name === 'string' ? ` · ${t.args.name}` : ''}` })
-          return { type: 'tool_result' as const, tool_use_id: t.call_id, content: JSON.stringify(result), is_error: failed }
-        })
+          results.push({ type: 'tool_result', tool_use_id: t.call_id, content: JSON.stringify(result), is_error: failed })
+        }
         messages.push({ role: 'user', content: results })
       }
       throw Error('Agent step limit reached. No generated changes were staged; ask for a smaller change.')

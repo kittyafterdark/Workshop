@@ -1,3 +1,4 @@
+import { uuid } from './uuid.js'
 import type { SpindleFrontendContext } from 'lumiverse-spindle-types'
 import type { ReferencePreset, ReferenceResult } from './reference-backend.js'
 import { computePromptGroups } from './workshop-core.js'
@@ -46,7 +47,7 @@ export class ReferenceView {
     this.element.hidden = true
     this.element.setAttribute('role', 'region')
     this.element.setAttribute('aria-label', 'Reference preset')
-    const id = `reference-${crypto.randomUUID()}`
+    const id = `reference-${uuid()}`
     this.element.innerHTML = `<div class="workshop-reference-controls"><div><label for="${id}-preset">Reference preset</label><select id="${id}-preset"><option value="">Choose a second preset</option></select></div><button type="button" class="workshop-text-button" data-reference-refresh>Refresh reference presets</button></div><p class="workshop-reference-status" role="status"></p><input type="search" placeholder="Search reference prompts…" aria-label="Search reference prompts"><div class="workshop-reference-body"><nav class="workshop-reference-nav" aria-label="Reference prompts"></nav><section class="workshop-reference-document" aria-label="Reference prompt"><h3>Select a reference prompt</h3><button class="workshop-text-button" type="button" data-reference-copy disabled>Copy reference prompt</button><label for="${id}">Read-only prompt content</label><textarea id="${id}" readonly spellcheck="false"></textarea></section></div>`
     this.picker = this.element.querySelector('select')!
     this.search = this.element.querySelector('input')!
@@ -77,7 +78,7 @@ export class ReferenceView {
   }
   activate(): void { if (!this.started) { this.started = true; void this.refresh() } }
   private request(type: 'list' | 'get', presetId?: string): Promise<ReferenceResult> {
-    const requestId = crypto.randomUUID()
+    const requestId = uuid()
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this.pending.delete(requestId); reject(Error('Reference read timed out. Refresh to retry.')) }, 10000)
       this.pending.set(requestId, { resolve, reject, timer })

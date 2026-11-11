@@ -1,3 +1,4 @@
+import { backendUuid } from './uuid.js'
 import { ReferenceReader } from './reference-backend.js'
 import { WorkshopAgentCoordinator } from './agent-backend.js'
 import { WorkshopPreviewCoordinator } from './backend-core.js'
@@ -14,7 +15,7 @@ const previews = new WorkshopPreviewCoordinator({
 })
 const references = new ReferenceReader(spindle.presets, (payload, userId) => spindle.sendToFrontend(payload, userId))
 const agents = new WorkshopAgentCoordinator(spindle)
-const backups = new BackupManager(new PresetBackupStore(spindle.ephemeral), spindle.userStorage)
+const backups = new BackupManager(new PresetBackupStore(spindle.ephemeral, Date.now, () => backendUuid(spindle)), spindle.userStorage)
 // Cleanup also runs on every backup operation; the host TTL survives extension reloads.
 const prune = () => { void spindle.ephemeral.clearExpired().catch(() => {}) }
 prune()

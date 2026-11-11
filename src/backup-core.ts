@@ -1,3 +1,4 @@
+import { localUuid } from './uuid.js'
 import type { SpindlePresetEditorDraft } from 'lumiverse-spindle-types'
 
 export const BACKUP_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -49,13 +50,13 @@ const managedPath = (path: string) => !['.', '..'].includes(path.split('/')[1]) 
 
 /** The host ephemeral pool owns expiry; no private filesystem access or browser storage. */
 export class PresetBackupStore {
-  constructor(private disk: BackupDisk, private now = Date.now, private unique = () => crypto.randomUUID()) {}
+  constructor(private disk: BackupDisk, private now = Date.now, private unique: () => string | Promise<string> = localUuid) {}
   async create(preset: SpindlePresetEditorDraft, kind: PresetBackup['kind'], userId: string): Promise<PresetBackup> {
     if (!isPresetSnapshot(preset)) throw new Error('Invalid preset snapshot.')
     await this.disk.clearExpired()
     const createdAt = this.now()
     const stamp = new Date(createdAt).toISOString().replace('T', ' ').replace(/:/g, '-').replace('Z', ' UTC')
-    const path = `${backupFolder(preset.name)}${stamp}--${this.unique()}.json`
+    const path = `${backupFolder(preset.name)}${stamp}--${await this.unique()}.json`
     if (!managedPath(path)) throw new Error('Invalid backup path.')
     const backup: PresetBackup = { version: 1, path, userId, createdAt, expiresAt: createdAt + BACKUP_TTL_MS, kind, preset: structuredClone(preset) }
     await this.disk.write(path, JSON.stringify(backup, null, 2), { ttlMs: BACKUP_TTL_MS })

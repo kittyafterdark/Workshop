@@ -1,3 +1,4 @@
+import { uuid } from './uuid.js'
 import type { PromptBlockDTO } from 'lumiverse-spindle-types'
 import { computePromptGroups } from './workshop-core.js'
 import { PROMPT_MARKERS, PromptManagerDraft, structureProtected } from './prompt-manager-core.js'
@@ -62,7 +63,7 @@ export function openPromptManager(
   const returnFocus = document.activeElement as HTMLElement | null
   const dialog = document.createElement('dialog')
   dialog.className = 'workshop-manage'
-  const headingId = `workshop-manage-${crypto.randomUUID()}`
+  const headingId = `workshop-manage-${uuid()}`
   dialog.setAttribute('aria-labelledby', headingId)
   dialog.innerHTML = `<header><h2>Manage prompts</h2><span data-manage="count"></span></header>
     <p>Add, organize, or delete items. Drag by the handle, select a title to organize it, or check multiple prompts to move them together. Done keeps changes local until Apply in Workshop.</p>

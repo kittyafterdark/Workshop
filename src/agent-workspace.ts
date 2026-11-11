@@ -1,3 +1,4 @@
+import { uuid } from './uuid.js'
 import { renderAgentMarkdown } from './agent-markdown.js'
 import { agentBlockChanges } from './agent-changes.js'
 import { renderAgentChanges } from './agent-change-view.js'
@@ -10,7 +11,7 @@ import { presetFingerprint } from './backup-core.js'
 /** Native dialogs avoid consuming Lumi's last extension-modal slot. */
 export function confirmAgentApply(parent: HTMLElement): Promise<boolean> {
   if (parent.querySelector('.workshop-agent-apply')) return Promise.resolve(false)
-  const dialog = document.createElement('dialog'), titleId = `agent-apply-${crypto.randomUUID()}`
+  const dialog = document.createElement('dialog'), titleId = `agent-apply-${uuid()}`
   const previous = document.activeElement as HTMLElement | null
   dialog.className = 'workshop-agent-exit workshop-agent-apply'
   dialog.setAttribute('aria-labelledby', titleId)
@@ -165,7 +166,7 @@ export class AgentWorkspace {
   private history: Array<{ role: 'user' | 'assistant'; content: string }> = []
   private unsubscribe: () => void
   private timer: ReturnType<typeof setTimeout> | null = null
-  private configId = crypto.randomUUID()
+  private configId = uuid()
   private disposed = false
   private modelFetch: AbortController | null = null
   private connections: NonNullable<AgentResponse['connections']> = []
@@ -184,7 +185,7 @@ export class AgentWorkspace {
   }) {
     this.element.className = 'workshop-agent'
     this.element.setAttribute('aria-label', 'Agent workspace')
-    const fieldId = crypto.randomUUID()
+    const fieldId = uuid()
     this.element.innerHTML = `<div class="workshop-agent-columns"><div class="workshop-agent-prompt"><section class="workshop-agent-editor" aria-label="Draft prompt editor"><div class="workshop-agent-editor-heading"><button class="workshop-text-button workshop-agent-nav-toggle" type="button" data-agent="prompts" aria-controls="${fieldId}-prompts" aria-expanded="false" aria-label="Open agent prompts">${AGENT_ICONS.sidebar}</button><h2>Prompt draft</h2></div><p>All edits stay local until Apply.</p><p class="workshop-agent-block-name" data-agent="block-name"></p><label class="workshop-agent-content">Draft content<textarea data-agent="content" spellcheck="false"></textarea></label><details><summary>Inspect mounted context</summary><p>Includes current values, preview mocks, diagnostics, settings and regex metadata. Only this mounted preset is available to the agent.</p><pre data-agent="context"></pre></details></section></div><section class="workshop-agent-chat" aria-label="Preset assistant"><div class="workshop-agent-settings"><div><label for="${fieldId}-connection">Lumi connection</label><select id="${fieldId}-connection" data-agent="connection"><option value="">Loading connections…</option></select></div><div><label for="${fieldId}-model">Model</label><div class="workshop-agent-model-control"><input id="${fieldId}-model" data-agent="model" list="${fieldId}-models" placeholder="Connection default" maxlength="500" autocomplete="off"><datalist id="${fieldId}-models" data-agent="models"></datalist><button type="button" class="workshop-text-button" data-agent="refresh-models" aria-label="Refresh models" title="Refresh models">${AGENT_ICONS.refresh}</button></div><span class="workshop-agent-model-status" data-agent="model-status" role="status"></span></div><p>Use the connection default, or enter a model ID. Edits stay local until Apply.</p></div><div class="workshop-agent-log" data-agent="log" aria-label="Conversation"></div><div class="workshop-agent-chat-footer"><details class="workshop-agent-tools"><summary>Tool activity</summary><div class="workshop-agent-tools-body"><pre data-agent="activity"></pre><details class="workshop-agent-compatibility"><summary>PresetTools compatibility</summary><label for="${fieldId}-server">PresetTools compatibility</label><select id="${fieldId}-server" data-agent="server"><option value="">Built-in tools</option></select></details></div></details><div class="workshop-agent-status" data-agent="status" role="status"></div><button type="button" class="workshop-text-button" data-agent="retry" hidden>Retry last request</button><form class="workshop-agent-composer"><label class="workshop-agent-sr-only" for="${fieldId}-instruction">Ask the preset assistant</label><textarea id="${fieldId}-instruction" data-agent="instruction" rows="2" placeholder="Review diagnostics, or describe an edit…" required maxlength="30000"></textarea><button class="workshop-agent-send" type="submit" data-agent="send" aria-label="Send" title="Send" disabled>${AGENT_ICONS.send}</button></form></div></section></div>`
     const navigation = options.navigation
     this.navigationHome = { parent: navigation.parentNode!, next: navigation.nextSibling, id: navigation.id, label: navigation.getAttribute('aria-label'), hidden: navigation.hidden, buttonLabel: navigation.querySelector('[data-action="left"]')!.getAttribute('aria-label') }
@@ -330,7 +331,7 @@ export class AgentWorkspace {
     if (this.busy || !this.select('connection').value || !(retryInstruction ?? this.area('instruction').value).trim()) return
     try {
       const preset = this.options.snapshot(), instruction = (retryInstruction ?? this.area('instruction').value).trim()
-      this.request = { id: crypto.randomUUID(), fingerprint: presetFingerprint(preset), instruction, before: structuredClone(preset.blocks), history: [...this.history, { role: 'user', content: instruction }] }
+      this.request = { id: uuid(), fingerprint: presetFingerprint(preset), instruction, before: structuredClone(preset.blocks), history: [...this.history, { role: 'user', content: instruction }] }
       this.failedInstruction = null
       this.busy = true; this.updateControls(); this.status('Working in a detached draft…')
       if (!retryInstruction) this.message('user', instruction)
@@ -411,7 +412,7 @@ export class AgentWorkspace {
   }
   confirmLeave(): Promise<'keep' | 'discard' | null> {
     if (this.exitDialog) return Promise.resolve(null)
-    const dialog = document.createElement('dialog'), titleId = `agent-exit-${crypto.randomUUID()}`
+    const dialog = document.createElement('dialog'), titleId = `agent-exit-${uuid()}`
     dialog.className = 'workshop-agent-exit'; dialog.setAttribute('aria-labelledby', titleId)
     dialog.innerHTML = `<h2 id="${titleId}">Leave agent mode?</h2><p>Keep drafts returns to Workshop with all local edits intact. Discard removes all unsynced Workshop edits. A running agent will be stopped. Neither option applies changes.</p><button class="workshop-text-button" data-choice="keep">Keep drafts and leave</button><button class="workshop-text-button" data-choice="discard">Discard drafts and leave</button><button class="workshop-text-button" data-choice="stay" autofocus>Stay</button>`
     this.element.append(dialog); this.exitDialog = dialog

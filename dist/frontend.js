@@ -1,3 +1,25 @@
+// src/uuid.ts
+var frontendUuid;
+function bindFrontendUuid(context) {
+  const uuid = context.uuid;
+  const generate = uuid ? () => uuid.v4() : undefined;
+  frontendUuid = generate;
+  return () => {
+    if (frontendUuid === generate)
+      frontendUuid = undefined;
+  };
+}
+function uuid() {
+  return frontendUuid?.() ?? localUuid();
+}
+function localUuid() {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = bytes[6] & 15 | 64;
+  bytes[8] = bytes[8] & 63 | 128;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 // src/backup-core.ts
 var BACKUP_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 var record = (value) => !!value && typeof value === "object" && !Array.isArray(value);
@@ -733,7 +755,7 @@ class PromptManagerDraft {
       throw Error("Choose a supported marker.");
     const type = kind === "category" ? "category" : kind === "marker" ? marker : null;
     const block = {
-      id: crypto.randomUUID(),
+      id: uuid(),
       name: name.trim(),
       content: "",
       role: "system",
@@ -890,7 +912,7 @@ function openPromptManager(root, blocks, stage, onClose) {
   const returnFocus = document.activeElement;
   const dialog = document.createElement("dialog");
   dialog.className = "workshop-manage";
-  const headingId = `workshop-manage-${crypto.randomUUID()}`;
+  const headingId = `workshop-manage-${uuid()}`;
   dialog.setAttribute("aria-labelledby", headingId);
   dialog.innerHTML = `<header><h2>Manage prompts</h2><span data-manage="count"></span></header>
     <p>Add, organize, or delete items. Drag by the handle, select a title to organize it, or check multiple prompts to move them together. Done keeps changes local until Apply in Workshop.</p>
@@ -1326,7 +1348,7 @@ class ReferenceView {
     this.element.hidden = true;
     this.element.setAttribute("role", "region");
     this.element.setAttribute("aria-label", "Reference preset");
-    const id = `reference-${crypto.randomUUID()}`;
+    const id = `reference-${uuid()}`;
     this.element.innerHTML = `<div class="workshop-reference-controls"><div><label for="${id}-preset">Reference preset</label><select id="${id}-preset"><option value="">Choose a second preset</option></select></div><button type="button" class="workshop-text-button" data-reference-refresh>Refresh reference presets</button></div><p class="workshop-reference-status" role="status"></p><input type="search" placeholder="Search reference prompts…" aria-label="Search reference prompts"><div class="workshop-reference-body"><nav class="workshop-reference-nav" aria-label="Reference prompts"></nav><section class="workshop-reference-document" aria-label="Reference prompt"><h3>Select a reference prompt</h3><button class="workshop-text-button" type="button" data-reference-copy disabled>Copy reference prompt</button><label for="${id}">Read-only prompt content</label><textarea id="${id}" readonly spellcheck="false"></textarea></section></div>`;
     this.picker = this.element.querySelector("select");
     this.search = this.element.querySelector("input");
@@ -1382,7 +1404,7 @@ class ReferenceView {
     }
   }
   request(type, presetId) {
-    const requestId = crypto.randomUUID();
+    const requestId = uuid();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
@@ -5485,7 +5507,7 @@ async function loadMacroCatalogue() {
 function confirmAgentApply(parent) {
   if (parent.querySelector(".workshop-agent-apply"))
     return Promise.resolve(false);
-  const dialog = document.createElement("dialog"), titleId = `agent-apply-${crypto.randomUUID()}`;
+  const dialog = document.createElement("dialog"), titleId = `agent-apply-${uuid()}`;
   const previous = document.activeElement;
   dialog.className = "workshop-agent-exit workshop-agent-apply";
   dialog.setAttribute("aria-labelledby", titleId);
@@ -5649,7 +5671,7 @@ class AgentWorkspace {
   history = [];
   unsubscribe;
   timer = null;
-  configId = crypto.randomUUID();
+  configId = uuid();
   disposed = false;
   modelFetch = null;
   connections = [];
@@ -5663,7 +5685,7 @@ class AgentWorkspace {
     this.options = options;
     this.element.className = "workshop-agent";
     this.element.setAttribute("aria-label", "Agent workspace");
-    const fieldId = crypto.randomUUID();
+    const fieldId = uuid();
     this.element.innerHTML = `<div class="workshop-agent-columns"><div class="workshop-agent-prompt"><section class="workshop-agent-editor" aria-label="Draft prompt editor"><div class="workshop-agent-editor-heading"><button class="workshop-text-button workshop-agent-nav-toggle" type="button" data-agent="prompts" aria-controls="${fieldId}-prompts" aria-expanded="false" aria-label="Open agent prompts">${AGENT_ICONS.sidebar}</button><h2>Prompt draft</h2></div><p>All edits stay local until Apply.</p><p class="workshop-agent-block-name" data-agent="block-name"></p><label class="workshop-agent-content">Draft content<textarea data-agent="content" spellcheck="false"></textarea></label><details><summary>Inspect mounted context</summary><p>Includes current values, preview mocks, diagnostics, settings and regex metadata. Only this mounted preset is available to the agent.</p><pre data-agent="context"></pre></details></section></div><section class="workshop-agent-chat" aria-label="Preset assistant"><div class="workshop-agent-settings"><div><label for="${fieldId}-connection">Lumi connection</label><select id="${fieldId}-connection" data-agent="connection"><option value="">Loading connections…</option></select></div><div><label for="${fieldId}-model">Model</label><div class="workshop-agent-model-control"><input id="${fieldId}-model" data-agent="model" list="${fieldId}-models" placeholder="Connection default" maxlength="500" autocomplete="off"><datalist id="${fieldId}-models" data-agent="models"></datalist><button type="button" class="workshop-text-button" data-agent="refresh-models" aria-label="Refresh models" title="Refresh models">${AGENT_ICONS.refresh}</button></div><span class="workshop-agent-model-status" data-agent="model-status" role="status"></span></div><p>Use the connection default, or enter a model ID. Edits stay local until Apply.</p></div><div class="workshop-agent-log" data-agent="log" aria-label="Conversation"></div><div class="workshop-agent-chat-footer"><details class="workshop-agent-tools"><summary>Tool activity</summary><div class="workshop-agent-tools-body"><pre data-agent="activity"></pre><details class="workshop-agent-compatibility"><summary>PresetTools compatibility</summary><label for="${fieldId}-server">PresetTools compatibility</label><select id="${fieldId}-server" data-agent="server"><option value="">Built-in tools</option></select></details></div></details><div class="workshop-agent-status" data-agent="status" role="status"></div><button type="button" class="workshop-text-button" data-agent="retry" hidden>Retry last request</button><form class="workshop-agent-composer"><label class="workshop-agent-sr-only" for="${fieldId}-instruction">Ask the preset assistant</label><textarea id="${fieldId}-instruction" data-agent="instruction" rows="2" placeholder="Review diagnostics, or describe an edit…" required maxlength="30000"></textarea><button class="workshop-agent-send" type="submit" data-agent="send" aria-label="Send" title="Send" disabled>${AGENT_ICONS.send}</button></form></div></section></div>`;
     const navigation = options.navigation;
     this.navigationHome = { parent: navigation.parentNode, next: navigation.nextSibling, id: navigation.id, label: navigation.getAttribute("aria-label"), hidden: navigation.hidden, buttonLabel: navigation.querySelector('[data-action="left"]').getAttribute("aria-label") };
@@ -5881,7 +5903,7 @@ class AgentWorkspace {
       return;
     try {
       const preset = this.options.snapshot(), instruction = (retryInstruction ?? this.area("instruction").value).trim();
-      this.request = { id: crypto.randomUUID(), fingerprint: presetFingerprint(preset), instruction, before: structuredClone(preset.blocks), history: [...this.history, { role: "user", content: instruction }] };
+      this.request = { id: uuid(), fingerprint: presetFingerprint(preset), instruction, before: structuredClone(preset.blocks), history: [...this.history, { role: "user", content: instruction }] };
       this.failedInstruction = null;
       this.busy = true;
       this.updateControls();
@@ -6007,7 +6029,7 @@ class AgentWorkspace {
   confirmLeave() {
     if (this.exitDialog)
       return Promise.resolve(null);
-    const dialog = document.createElement("dialog"), titleId = `agent-exit-${crypto.randomUUID()}`;
+    const dialog = document.createElement("dialog"), titleId = `agent-exit-${uuid()}`;
     dialog.className = "workshop-agent-exit";
     dialog.setAttribute("aria-labelledby", titleId);
     dialog.innerHTML = `<h2 id="${titleId}">Leave agent mode?</h2><p>Keep drafts returns to Workshop with all local edits intact. Discard removes all unsynced Workshop edits. A running agent will be stopped. Neither option applies changes.</p><button class="workshop-text-button" data-choice="keep">Keep drafts and leave</button><button class="workshop-text-button" data-choice="discard">Discard drafts and leave</button><button class="workshop-text-button" data-choice="stay" autofocus>Stay</button>`;
@@ -7710,7 +7732,7 @@ function createWorkshopSession(ctx, onClosed) {
     const surface = panel.root;
     const restoreChrome = installFullscreenModalChrome(surface);
     surface.className = "workshop-review workshop-backups";
-    const settingsId = `backup-settings-${crypto.randomUUID()}`;
+    const settingsId = `backup-settings-${uuid()}`;
     surface.innerHTML = `<header class="workshop-review-header"><div class="workshop-review-brand">${ICONS.backups}<div><h2>Preset backups</h2><span class="workshop-review-caption"></span></div></div><button type="button" class="workshop-review-button" data-backup="close">${ICONS.close}<span>Close</span></button></header><section class="workshop-review-issue" aria-label="Backup retention"><h3>One week of recovery</h3><p>Snapshots before Apply, manual snapshots, and optional timed backups of local work. Restore stays local until Apply.</p><p>Includes prompt blocks, variable definitions and preset settings. Lumi keeps live variable selections; preview mocks are excluded.</p><p>Stored in Workshop’s transient storage under storage/&lt;preset-name&gt;/backups/. Filenames use UTC date and time. Backups expire after seven days, including across restarts. A count limit can remove older backups sooner.</p><p data-backup="timing"></p></section><div class="workshop-backup-list"><form class="workshop-backup-settings" id="${settingsId}" aria-label="Backup settings" hidden><h3>Backup settings</h3><label class="workshop-backup-switch"><input type="checkbox" role="switch" data-backup="automatic">Automatic timed backups</label><label>Interval in minutes<input type="number" data-backup="interval" min="1" max="1440" step="1" required></label><label>Maximum backups to keep<input type="number" data-backup="keep" min="0" max="10000" step="1" required></label><p>Per preset. Timed backups run while Workshop is open, include unsynced edits, and skip unchanged snapshots. Closing Workshop stops the timer. Use 0 for no count limit. Saving a smaller limit removes the oldest backups now, including manual and pre-Apply snapshots, across this preset’s previous names. Seven-day expiry still applies.</p><div class="workshop-review-controls"><button type="submit" class="workshop-review-button primary" data-backup="save-settings">Save settings</button><button type="button" class="workshop-review-button" data-backup="cancel-settings">Cancel settings</button></div></form><div data-backup="list" aria-label="Available backups"></div></div><footer class="workshop-review-footer"><div class="workshop-review-controls"><button type="button" class="workshop-review-button primary" data-backup="create">${ICONS.backups}<span>Create backup</span></button><button type="button" class="workshop-review-button" data-backup="refresh">${ICONS.refresh}<span>Refresh</span></button><button type="button" class="workshop-review-button" data-backup="settings" aria-controls="${settingsId}" aria-expanded="false">Settings</button></div><span class="workshop-review-notice" data-backup="notice" role="status"></span></footer>`;
     surface.querySelector(".workshop-review-caption").textContent = latestPresetName;
     const list = surface.querySelector('[data-backup="list"]');
@@ -9089,6 +9111,19 @@ function createWorkshopSession(ctx, onClosed) {
   };
 }
 function setup(ctx) {
+  const unbindUuid = bindFrontendUuid(ctx);
+  try {
+    const teardown = setupWorkshop(ctx);
+    return () => {
+      unbindUuid();
+      teardown();
+    };
+  } catch (error) {
+    unbindUuid();
+    throw error;
+  }
+}
+function setupWorkshop(ctx) {
   const removeStyle = ctx.dom.addStyle(WORKSHOP_CSS + AGENT_CSS + REFERENCE_CSS);
   const toolbarRoot = ctx.ui.mount("preset_editor_toolbar");
   const launcher = button("workshop-launcher", "Open Workshop", `${ICONS.workshop}<span>Workshop</span>`);

@@ -1,3 +1,16 @@
+// src/uuid.ts
+function localUuid() {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = bytes[6] & 15 | 64;
+  bytes[8] = bytes[8] & 63 | 128;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+async function backendUuid(api) {
+  const uuid = api.uuid;
+  return uuid ? await uuid.v4() : localUuid();
+}
+
 // src/reference-backend.ts
 class ReferenceReader {
   presets;
@@ -352,7 +365,7 @@ class AgentDraft {
   snapshot() {
     return structuredClone(this.value);
   }
-  execute(name, args) {
+  execute(name, args, newBlockId) {
     const definition = AGENT_TOOLS.find((t) => t.name === name);
     if (!definition)
       throw Error("Unsupported tool. Saving, applying, external files and arbitrary MCP calls are unavailable.");
@@ -431,7 +444,7 @@ class AgentDraft {
       if (name === "preset_insert_block") {
         if (!text("name").trim() || next.blocks.some((b) => b.name === text("name")))
           throw Error("Choose a nonempty unique name.");
-        block = { id: crypto.randomUUID(), name: text("name"), content: text("content"), role: args.role ?? "system", enabled: args.enabled ?? true, position: args.position ?? "pre_history", depth: 0, marker: null, isLocked: false, color: null, injectionTrigger: [], group: null };
+        block = { id: newBlockId ?? localUuid(), name: text("name"), content: text("content"), role: args.role ?? "system", enabled: args.enabled ?? true, position: args.position ?? "pre_history", depth: 0, marker: null, isLocked: false, color: null, injectionTrigger: [], group: null };
       } else {
         if (!args.before && !args.after && args.category === undefined)
           throw Error("A move needs before, after or category.");
@@ -501,7 +514,7 @@ class PresetBackupStore {
   disk;
   now;
   unique;
-  constructor(disk, now = Date.now, unique = () => crypto.randomUUID()) {
+  constructor(disk, now = Date.now, unique = localUuid) {
     this.disk = disk;
     this.now = now;
     this.unique = unique;
@@ -512,7 +525,7 @@ class PresetBackupStore {
     await this.disk.clearExpired();
     const createdAt = this.now();
     const stamp = new Date(createdAt).toISOString().replace("T", " ").replace(/:/g, "-").replace("Z", " UTC");
-    const path = `${backupFolder(preset.name)}${stamp}--${this.unique()}.json`;
+    const path = `${backupFolder(preset.name)}${stamp}--${await this.unique()}.json`;
     if (!managedPath(path))
       throw new Error("Invalid backup path.");
     const backup = { version: 1, path, userId, createdAt, expiresAt: createdAt + BACKUP_TTL_MS, kind, preset: structuredClone(preset) };
@@ -669,20 +682,24 @@ class WorkshopAgentCoordinator {
         if (!Array.isArray(response.tool_calls) || response.tool_calls.length + calls > 32)
           throw Error("Tool limit reached. No generated changes were staged.");
         messages.push({ role: "assistant", content: [...content ? [{ type: "text", text: content }] : [], ...response.tool_calls.map((t) => ({ type: "tool_use", id: t.call_id, name: t.name, input: t.args, ...t.thought_signature ? { thought_signature: t.thought_signature } : {} }))], reasoning_content: response.reasoning, thinking_blocks: response.thinking_blocks, reasoning_details: response.reasoning_details });
-        const results = response.tool_calls.map((t) => {
+        const results = [];
+        for (const t of response.tool_calls) {
           calls++;
           let result, failed = false;
           try {
             if (!t.args || typeof t.args !== "object" || Array.isArray(t.args))
               throw Error("Arguments must be an object.");
-            result = draft.execute(t.name, t.args);
+            const id = t.name === "preset_insert_block" ? await Promise.race([backendUuid(this.api), aborted]) : undefined;
+            result = draft.execute(t.name, t.args, id);
           } catch (error) {
+            if (abort.signal.aborted)
+              throw error;
             failed = true;
             result = { error: error instanceof Error ? error.message : "Tool failed." };
           }
           emit({ type: "workshop:agent-progress", content: `${failed ? "Rejected" : "Completed"} ${t.name}${typeof t.args?.name === "string" ? ` · ${t.args.name}` : ""}` });
-          return { type: "tool_result", tool_use_id: t.call_id, content: JSON.stringify(result), is_error: failed };
-        });
+          results.push({ type: "tool_result", tool_use_id: t.call_id, content: JSON.stringify(result), is_error: failed });
+        }
         messages.push({ role: "user", content: results });
       }
       throw Error("Agent step limit reached. No generated changes were staged; ask for a smaller change.");
@@ -861,7 +878,7 @@ var previews = new WorkshopPreviewCoordinator({
 });
 var references = new ReferenceReader(spindle.presets, (payload, userId) => spindle.sendToFrontend(payload, userId));
 var agents = new WorkshopAgentCoordinator(spindle);
-var backups = new BackupManager(new PresetBackupStore(spindle.ephemeral), spindle.userStorage);
+var backups = new BackupManager(new PresetBackupStore(spindle.ephemeral, Date.now, () => backendUuid(spindle)), spindle.userStorage);
 var prune = () => {
   spindle.ephemeral.clearExpired().catch(() => {});
 };
